@@ -1,0 +1,56 @@
+[package]
+name = "nodal-flow"
+version = "0.2.0"
+description = "Sovereign Graph Engine - Local-first AI with verified knowledge"
+authors = ["Sandhu Consulting Group"]
+edition = "2021"
+license = "Proprietary"
+
+[build-dependencies]
+tauri-build = { version = "1", features = [] }
+
+[dependencies]
+# Tauri framework
+tauri = { version = "1", features = ["shell-open", "fs-all", "dialog-open", "path-all"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client for Ollama
+reqwest = { version = "0.11", features = ["json"] }
+
+# THE TRUTH ENGINE
+# Bundled compiles DuckDB C++ into binary - no external dependencies
+duckdb = { version = "0.9.2", features = ["bundled"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Cryptographic verification (foundational for Clarion integration)
+blake3 = "1.5"                    # Merkle root computation
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }  # Signature verification
+sha2 = "0.10"                     # Content hashing (SHA-256)
+hex = "0.4"                       # Hex encoding/decoding
+base32 = "0.4"                    # Entity ID encoding
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.10"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
