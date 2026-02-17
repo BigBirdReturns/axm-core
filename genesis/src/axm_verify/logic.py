@@ -86,7 +86,7 @@ def _validate_root_layout(root: Path, errors: List[Dict[str, str]]) -> bool:
 
     items = {p.name for p in root.iterdir()}
     missing = REQUIRED_ROOT_ITEMS - items
-    extra = items - REQUIRED_ROOT_ITEMS
+    extra = (items - REQUIRED_ROOT_ITEMS) - {"ext"}
     if missing:
         _err(errors, ErrorCode.E_LAYOUT_MISSING, f"Missing required root items: {sorted(missing)}")
     if extra:

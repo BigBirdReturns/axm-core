@@ -68,6 +68,7 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
     - Ambiguous evidence fails the build.
     - Output Parquet files are written deterministically.
     - The compiled shard must pass axm-verify using the publisher key.
+    - Locator data from candidates survives into ext/locators@1.parquet.
     """
 
     if not cfg.source_path.exists():
@@ -83,7 +84,7 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
     # Fresh output
     if cfg.out_dir.exists():
         shutil.rmtree(cfg.out_dir)
-    for d in ("content", "graph", "evidence", "sig"):
+    for d in ("content", "graph", "evidence", "sig", "ext"):
         (cfg.out_dir / d).mkdir(parents=True, exist_ok=True)
 
     (cfg.out_dir / "content" / "source.txt").write_bytes(content_bytes)
@@ -125,10 +126,11 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
             }
         )
 
-    # Pass 2: claims + evidence
+    # Pass 2: claims + evidence + locators
     claim_rows: List[Dict[str, Any]] = []
     prov_rows: List[Dict[str, Any]] = []
     span_rows: List[Dict[str, Any]] = []
+    locator_rows: List[Dict[str, Any]] = []
 
     for c in candidates:
         subj_label = str(c.get("subject", "")).strip()
@@ -172,6 +174,10 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
         prov_id = _b32_id("p_", f"{source_hash}\x00{byte_start}\x00{byte_end}")
         span_id = _b32_id("s_", f"{source_hash}\x00{byte_start}\x00{byte_end}\x00{evidence}")
 
+        # Stable evidence address: deterministic from source bytes, survives rebuilds.
+        # This is the join key for ext/locators@1.parquet.
+        evidence_addr = _b32_id("ea_", f"{source_hash}\x00{byte_start}\x00{byte_end}")
+
         claim_rows.append(
             {
                 "claim_id": cid,
@@ -201,17 +207,46 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
             }
         )
 
+        # Locator: if the candidate carries structural position, preserve it.
+        locator = c.get("locator")
+        if locator and isinstance(locator, dict):
+            loc_row = {
+                "evidence_addr": evidence_addr,
+                "span_id": span_id,
+                "source_hash": source_hash,
+                "kind": str(locator.get("kind", "")),
+                "page_index": locator.get("page"),
+                "paragraph_index": locator.get("paragraph_index"),
+                "block_id": locator.get("block_id", ""),
+                "file_path": locator.get("file_path", ""),
+            }
+            locator_rows.append(loc_row)
+
     if not claim_rows:
         return False
 
-    # Write tables deterministically
+    # Write core tables deterministically (frozen Genesis schema)
     write_parquet_deterministic(cfg.out_dir / "graph" / "entities.parquet", ent_rows, ENTITIES_SCHEMA, "entity_id")
     write_parquet_deterministic(cfg.out_dir / "graph" / "claims.parquet", claim_rows, CLAIMS_SCHEMA, "claim_id")
     write_parquet_deterministic(cfg.out_dir / "graph" / "provenance.parquet", prov_rows, PROVENANCE_SCHEMA, "provenance_id")
     write_parquet_deterministic(cfg.out_dir / "evidence" / "spans.parquet", span_rows, SPANS_SCHEMA, "span_id")
 
+    # Write ext/locators@1.parquet if locator data exists
+    if locator_rows:
+        _write_locators_extension(cfg.out_dir / "ext" / "locators.parquet", locator_rows)
+
     # Manifest + signatures
     merkle_root = compute_merkle_root(cfg.out_dir)
+    # Detect active extensions (files in ext/)
+    ext_dir = cfg.out_dir / "ext"
+    active_extensions = []
+    if ext_dir.exists():
+        for f in sorted(ext_dir.iterdir()):
+            if f.is_file() and not f.name.startswith("."):
+                # Extension name derived from filename: locators.parquet -> locators@1
+                stem = f.stem
+                active_extensions.append(f"{stem}@1")
+
     manifest = {
         "spec_version": "1.0.0",
         "shard_id": f"shard_blake3_{merkle_root}",
@@ -223,6 +258,9 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
         "integrity": {"algorithm": "blake3", "merkle_root": merkle_root},
         "statistics": {"entities": len(ent_rows), "claims": len(claim_rows)},
     }
+    # Only add extensions key if extensions exist - preserves hash stability
+    if active_extensions:
+        manifest["extensions"] = active_extensions
 
     manifest_bytes = dumps_canonical_json(manifest)
     (cfg.out_dir / "manifest.json").write_bytes(manifest_bytes)
@@ -243,3 +281,65 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
             os.unlink(trusted_path)
 
     return res.get("status") == "PASS"
+
+
+def _write_locators_extension(path: Path, rows: List[Dict[str, Any]]) -> None:
+    """Write ext/locators@1.parquet deterministically.
+
+    Schema (locators@1):
+        evidence_addr: string (stable join key = hash of source_hash + byte range)
+        span_id: string (link to spans.parquet)
+        source_hash: string
+        kind: string (pdf, docx, html, txt, pptx, xlsx)
+        page_index: int16 nullable
+        paragraph_index: int32 nullable
+        block_id: string
+        file_path: string
+    """
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        schema = pa.schema([
+            ("evidence_addr", pa.string()),
+            ("span_id", pa.string()),
+            ("source_hash", pa.string()),
+            ("kind", pa.string()),
+            ("page_index", pa.int16()),
+            ("paragraph_index", pa.int32()),
+            ("block_id", pa.string()),
+            ("file_path", pa.string()),
+        ])
+
+        # Sort deterministically by evidence_addr
+        rows_sorted = sorted(rows, key=lambda r: r["evidence_addr"])
+
+        arrays = {
+            "evidence_addr": pa.array([r["evidence_addr"] for r in rows_sorted], type=pa.string()),
+            "span_id": pa.array([r["span_id"] for r in rows_sorted], type=pa.string()),
+            "source_hash": pa.array([r["source_hash"] for r in rows_sorted], type=pa.string()),
+            "kind": pa.array([r["kind"] for r in rows_sorted], type=pa.string()),
+            "page_index": pa.array([r.get("page_index") for r in rows_sorted], type=pa.int16()),
+            "paragraph_index": pa.array([r.get("paragraph_index") for r in rows_sorted], type=pa.int32()),
+            "block_id": pa.array([r.get("block_id", "") or "" for r in rows_sorted], type=pa.string()),
+            "file_path": pa.array([r.get("file_path", "") or "" for r in rows_sorted], type=pa.string()),
+        }
+
+        table = pa.table(arrays, schema=schema)
+        pq.write_table(table, str(path), compression="zstd")
+
+    except ImportError:
+        # Fallback: DuckDB
+        import duckdb
+        con = duckdb.connect(":memory:")
+        rows_sorted = sorted(rows, key=lambda r: r["evidence_addr"])
+        con.execute("CREATE TABLE locators (evidence_addr VARCHAR, span_id VARCHAR, source_hash VARCHAR, kind VARCHAR, page_index SMALLINT, paragraph_index INTEGER, block_id VARCHAR, file_path VARCHAR)")
+        for r in rows_sorted:
+            con.execute(
+                "INSERT INTO locators VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [r["evidence_addr"], r["span_id"], r["source_hash"], r["kind"],
+                 r.get("page_index"), r.get("paragraph_index"),
+                 r.get("block_id", "") or "", r.get("file_path", "") or ""],
+            )
+        con.execute(f"COPY locators TO '{path}' (FORMAT PARQUET, COMPRESSION ZSTD)")
+        con.close()

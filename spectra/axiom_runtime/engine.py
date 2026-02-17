@@ -115,50 +115,56 @@ class SpectraEngine:
         """
         dev_mode = os.environ.get("SPECTRA_DEV_MODE") == "1"
 
+        # Resolve trusted key once for both paths.
+        trusted_key_env = os.environ.get("SPECTRA_TRUSTED_PUBKEY")
+        if trusted_key_env:
+            trusted = Path(trusted_key_env).expanduser().resolve(strict=False)
+        else:
+            # Local/dev fallback only. Real deployments must pin a trusted publisher key.
+            trusted = shard_dir / "sig" / "publisher.pub"
+            if not dev_mode:
+                print(
+                    "[WARNING] SPECTRA_TRUSTED_PUBKEY not set. Falling back to shard's publisher.pub as trusted anchor.",
+                    file=sys.stderr,
+                )
+
+        # Prefer in-process verification (faster, no subprocess overhead).
+        if genesis_verify_shard is not None:
+            result = genesis_verify_shard(shard_dir, trusted)
+            if result.get("status") != "PASS":
+                raise ValueError(f"Constitution check failed (in-process verify): {result}")
+            return
+
+        # Fall back to CLI.
         try:
+            cmd = ["axm-verify", "shard", str(shard_dir), "--trusted-key", str(trusted)]
             result = subprocess.run(
-                ["axm-verify", "shard", str(shard_dir)],
+                cmd,
                 capture_output=True,
                 text=True,
             )
             
             if result.returncode != 0:
                 raise ValueError(f"Constitution check failed (axm-verify): {result.stderr or result.stdout}")
+            return
                 
         except FileNotFoundError:
-            # Prefer in-process verification when the CLI is unavailable.
-            if genesis_verify_shard is not None:
-                trusted_key = os.environ.get("SPECTRA_TRUSTED_PUBKEY")
-                if trusted_key:
-                    trusted = Path(trusted_key).expanduser().resolve(strict=False)
-                else:
-                    # Local/dev fallback only. Real deployments must pin a trusted publisher key.
-                    trusted = shard_dir / "sig" / "publisher.pub"
-                    if not dev_mode:
-                        print(
-                            "[WARNING] SPECTRA_TRUSTED_PUBKEY not set. Falling back to shard's publisher.pub as trusted anchor.",
-                            file=sys.stderr,
-                        )
+            pass
 
-                passed, result = genesis_verify_shard(shard_dir, trusted)
-                if not passed:
-                    raise ValueError(f"Constitution check failed (in-process verify): {result}")
-                return
+        if dev_mode:
+            # DEV MODE ONLY: Minimal layout check for local development.
+            # This should NEVER be used in production.
+            print("[WARNING] axm-verify not found, running in DEV MODE", file=sys.stderr)
+            if not (shard_dir / "manifest.json").exists():
+                raise ValueError("Constitution check failed: missing manifest.json")
+            if not (shard_dir / "sig").exists():
+                raise ValueError("Constitution check failed: missing sig/")
+            return
 
-            if dev_mode:
-                # DEV MODE ONLY: Minimal layout check for local development.
-                # This should NEVER be used in production.
-                print("[WARNING] axm-verify not found, running in DEV MODE", file=sys.stderr)
-                if not (shard_dir / "manifest.json").exists():
-                    raise ValueError("Constitution check failed: missing manifest.json")
-                if not (shard_dir / "sig").exists():
-                    raise ValueError("Constitution check failed: missing sig/")
-                return
-
-            raise ValueError(
-                "Constitution check failed: 'axm-verify' not found and in-process verifier unavailable.\n"
-                "Install axm-genesis (pip install axm-genesis) or vendor genesis into Spectra."
-            )
+        raise ValueError(
+            "Constitution check failed: 'axm-verify' not found and in-process verifier unavailable.\n"
+            "Install axm-genesis (pip install axm-genesis) or vendor genesis into Spectra."
+        )
 
     def _verify_span_bounds(self, shard_dir: Path, manifest: Dict[str, Any]) -> None:
         """Verify that spans.parquet byte ranges stay within their referenced content files.
@@ -352,21 +358,43 @@ class SpectraEngine:
                 tables: List[str] = []
                 claims_for_mount: List[Dict[str, Any]] = []
 
-                claims_path = target_dir / "graph" / "claims.parquet"
-                if not claims_path.exists():
-                    raise ValueError("Genesis shard missing required file: graph/claims.parquet")
+                # Register views for all standard shard tables.
+                _SHARD_TABLES = [
+                    ("graph/claims.parquet", "claims", True),
+                    ("graph/entities.parquet", "entities", False),
+                    ("graph/provenance.parquet", "provenance", False),
+                    ("evidence/spans.parquet", "spans", False),
+                ]
 
-                p = claims_path.as_posix().replace("'", "''")
-                view_name = f"claims__{mount_prefix}__{sanitize_identifier(shard_id)}"
-                self.con.execute(
-                    f"CREATE OR REPLACE VIEW {quote_ident(view_name)} AS SELECT * FROM read_parquet('{p}')"
-                )
-                tables.append(view_name)
+                for rel_path, table_name, required in _SHARD_TABLES:
+                    pq_path = target_dir / rel_path
+                    if not pq_path.exists():
+                        if required:
+                            raise ValueError(f"Genesis shard missing required file: {rel_path}")
+                        continue
+                    p = pq_path.as_posix().replace("'", "''")
+                    view_name = f"{table_name}__{mount_prefix}__{sanitize_identifier(shard_id)}"
+                    self.con.execute(
+                        f"CREATE OR REPLACE VIEW {quote_ident(view_name)} AS SELECT * FROM read_parquet('{p}')"
+                    )
+                    tables.append(view_name)
 
-                # For indexing, pull rows as dicts (bounded by shard size in practice).
-                # If this becomes too heavy, switch to streaming reads later.
+                # Also register ext/ parquet files if present.
+                ext_dir = target_dir / "ext"
+                if ext_dir.is_dir():
+                    for ext_file in sorted(ext_dir.iterdir()):
+                        if ext_file.suffix == ".parquet" and ext_file.is_file():
+                            p = ext_file.as_posix().replace("'", "''")
+                            view_name = f"ext_{ext_file.stem}__{mount_prefix}__{sanitize_identifier(shard_id)}"
+                            self.con.execute(
+                                f"CREATE OR REPLACE VIEW {quote_ident(view_name)} AS SELECT * FROM read_parquet('{p}')"
+                            )
+                            tables.append(view_name)
+
+                # For indexing, pull claim rows as dicts (bounded by shard size in practice).
+                claims_view = f"claims__{mount_prefix}__{sanitize_identifier(shard_id)}"
                 try:
-                    rows = self.con.execute(f"SELECT * FROM {quote_ident(view_name)}").fetchdf().to_dict("records")
+                    rows = self.con.execute(f"SELECT * FROM {quote_ident(claims_view)}").fetchdf().to_dict("records")
                     for r in rows:
                         if isinstance(r, dict):
                             r.setdefault("shard_id", shard_id)

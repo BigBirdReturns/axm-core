@@ -196,12 +196,73 @@ def run_pipeline(
     report = {"stages": {}}
     t0 = time.time()
 
-    # -- Fetch --
+    # -- Fetch / Extract --
+    block_map_path = out_dir / "block_map.json"  # Block byte ranges → Locators
+
     if source_path and Path(source_path).exists():
-        import shutil
-        if Path(source_path).resolve() != src.resolve():
-            shutil.copy2(source_path, src)
-        log(f"Using existing source: {src}")
+        source_path = Path(source_path)
+
+        if source_path.suffix.lower() in (".txt", ".text", ".md", ".markdown"):
+            import shutil
+            if source_path.resolve() != src.resolve():
+                shutil.copy2(source_path, src)
+            log(f"Using text source: {src}")
+        else:
+            from axm_forge.ingestion.extractors import extract
+            log(f"Extracting: {source_path.name} ({source_path.suffix})", "stage")
+            extracted_doc = extract(source_path)
+
+            if extracted_doc.tier0_candidates:
+                # ── TIER-0 BYPASS: Schema IS extraction ──
+                # Structured data skips segmenter, LLM, and binder entirely.
+                log(f"  Structured format detected ({extracted_doc.format})", "ok")
+                log(f"  {len(extracted_doc.tier0_candidates)} tier-0 candidates (no LLM needed)", "ok")
+
+                # Write candidates directly
+                with cand.open("w", encoding="utf-8") as f:
+                    for c in extracted_doc.tier0_candidates:
+                        json.dump(c, f, ensure_ascii=False)
+                        f.write("\n")
+
+                # Build source.txt from evidence fields for the compiler
+                evidence_lines = [c["evidence"] for c in extracted_doc.tier0_candidates if c.get("evidence")]
+                src.write_text("\n".join(evidence_lines), encoding="utf-8")
+                log(f"  Synthetic source.txt: {len(evidence_lines)} evidence lines", "dim")
+
+                # Skip segmenter and LLM — go directly to binder check or genesis
+                skip_stage1 = True
+                report["tier0_bypass"] = True
+
+            else:
+                # ── UNSTRUCTURED PATH: Preserve block→locator mapping ──
+                full_text = extracted_doc.full_text
+                src.write_text(full_text, encoding="utf-8")
+                log(f"  {len(full_text.encode('utf-8')):,} bytes from {len(extracted_doc.blocks)} blocks", "ok")
+                if extracted_doc.page_count:
+                    log(f"  {extracted_doc.page_count} pages", "dim")
+
+                # Build block→locator map: maps byte ranges in source.txt to Locators.
+                # The compiler uses this to annotate candidates with locator dicts,
+                # which then flow into ext/locators.parquet.
+                block_map = []
+                byte_pos = 0
+                separator = "\n\n".encode("utf-8")
+                for i, block in enumerate(extracted_doc.blocks):
+                    block_bytes = block.text.encode("utf-8")
+                    block_map.append({
+                        "byte_start": byte_pos,
+                        "byte_end": byte_pos + len(block_bytes),
+                        "locator": block.locator.to_dict(),
+                    })
+                    byte_pos += len(block_bytes)
+                    if i < len(extracted_doc.blocks) - 1:
+                        byte_pos += len(separator)  # Account for "\n\n" join
+
+                block_map_path.write_text(
+                    json.dumps(block_map, indent=2), encoding="utf-8"
+                )
+                log(f"  Block map saved: {len(block_map)} entries with Locators", "dim")
+
     elif title_or_url:
         log(f"Fetching: {title_or_url}", "stage")
         text = fetch_wikipedia(title_or_url)
@@ -231,10 +292,13 @@ def run_pipeline(
         log("  WARNING: normalize_source_text not available, skipping normalization", "err")
 
     # -- Stage 0: Segment --
-    log("\n[Stage 0] Segmenting...", "stage")
-    t_seg = time.time()
-    n_sent = run_segmentation(src, sent)
-    log(f"  {n_sent} sentences in {time.time() - t_seg:.1f}s", "ok")
+    if report.get("tier0_bypass"):
+        log("\n[Stage 0] Skipped (tier-0 structured bypass)", "dim")
+    else:
+        log("\n[Stage 0] Segmenting...", "stage")
+        t_seg = time.time()
+        n_sent = run_segmentation(src, sent)
+        log(f"  {n_sent} sentences in {time.time() - t_seg:.1f}s", "ok")
 
     # -- Stage 1: Extract --
     if skip_stage1:
@@ -252,18 +316,20 @@ def run_pipeline(
         log(f"  {s1.get('claims', 0)} claims in {time.time() - t_ext:.1f}s", "ok")
 
     # -- Stage 2: Bind --
-    if not raw.exists():
+    if report.get("tier0_bypass"):
+        log("\n[Stage 2] Skipped (tier-0 structured bypass)", "dim")
+    elif not raw.exists():
         log("\n[Stage 2] Skipped (no raw_claims.jsonl)", "dim")
         return report
-
-    log("\n[Stage 2] Binding claims to byte spans...", "stage")
-    t_bind = time.time()
-    s2 = run_stage2(source_path=src, sentences_path=sent,
-                    raw_claims_path=raw, out_path=cand)
-    log(f"  {s2.get('emitted', 0)} candidates in {time.time() - t_bind:.2f}s", "ok")
+    else:
+        log("\n[Stage 2] Binding claims to byte spans...", "stage")
+        t_bind = time.time()
+        s2 = run_stage2(source_path=src, sentences_path=sent,
+                        raw_claims_path=raw, out_path=cand)
+        log(f"  {s2.get('emitted', 0)} candidates in {time.time() - t_bind:.2f}s", "ok")
 
     # -- Doctor: Validate byte-exactness --
-    if cand.exists():
+    if cand.exists() and not report.get("tier0_bypass"):
         from scripts.doctor_tier3 import validate_candidates_against_source
 
         log("\n[Doctor] Validating byte-exactness...", "stage")
@@ -278,6 +344,40 @@ def run_pipeline(
 
     # -- Candidates are now Genesis-compatible (binder emits tier + object_type directly) --
     adapted = cand  # No adapter needed; binder output is Genesis-native
+
+    # -- Locator Annotation: stamp block positions onto candidates --
+    if cand.exists() and block_map_path.exists() and not report.get("tier0_bypass"):
+        log("\n[Locator] Annotating candidates with structural positions...", "stage")
+        try:
+            block_map = json.loads(block_map_path.read_text(encoding="utf-8"))
+            candidates_raw = []
+            with cand.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        candidates_raw.append(json.loads(line))
+
+            annotated = 0
+            for c in candidates_raw:
+                bs = c.get("byte_start")
+                be = c.get("byte_end")
+                if bs is not None and be is not None:
+                    # Find the block that contains this byte range
+                    for bm in block_map:
+                        if bm["byte_start"] <= bs and be <= bm["byte_end"]:
+                            c["locator"] = bm["locator"]
+                            annotated += 1
+                            break
+
+            # Rewrite candidates with locator annotations
+            with cand.open("w", encoding="utf-8") as f:
+                for c in candidates_raw:
+                    json.dump(c, f, ensure_ascii=False)
+                    f.write("\n")
+
+            log(f"  {annotated}/{len(candidates_raw)} candidates annotated with Locators", "ok")
+        except Exception as e:
+            log(f"  Locator annotation skipped: {e}", "dim")
 
     # -- Genesis: Compile shard --
     if skip_genesis:
