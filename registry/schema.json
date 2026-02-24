@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AXM Registry",
+  "description": "Maps human-readable artifact references to Genesis shard_ids. Registry can move pointers. Registry never rewrites shards.",
+  "type": "object",
+  "required": ["artifacts"],
+  "properties": {
+    "artifacts": {
+      "type": "object",
+      "description": "Keys are canonical artifact names in namespace/name format.",
+      "additionalProperties": {
+        "$ref": "#/definitions/ArtifactEntry"
+      }
+    }
+  },
+  "definitions": {
+    "ArtifactEntry": {
+      "type": "object",
+      "required": ["name", "current", "history"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Canonical name. Format: namespace/slug",
+          "pattern": "^[a-z0-9_-]+/[a-z0-9_-]+$"
+        },
+        "aliases": {
+          "type": "array",
+          "description": "Additional human-readable refs that resolve to this artifact.",
+          "items": { "type": "string" }
+        },
+        "tags": {
+          "type": "array",
+          "description": "Freeform labels for filtering.",
+          "items": { "type": "string" }
+        },
+        "current": {
+          "type": "string",
+          "description": "Active shard_id. This is the only mutable pointer.",
+          "pattern": "^shard_blake3_[a-f0-9]+$"
+        },
+        "history": {
+          "type": "array",
+          "description": "Append-only lineage. Never delete entries.",
+          "items": { "$ref": "#/definitions/HistoryEntry" },
+          "minItems": 1
+        },
+        "policy": {
+          "$ref": "#/definitions/Policy"
+        }
+      }
+    },
+    "HistoryEntry": {
+      "type": "object",
+      "required": ["shard_id", "timestamp", "reason"],
+      "properties": {
+        "shard_id": {
+          "type": "string",
+          "pattern": "^shard_blake3_[a-f0-9]+$"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why this shard became current. e.g. 'initial compile', 'authority updated: FM 21-11 rev 3', 'correction: claim c_abc was wrong'"
+        },
+        "compiler": {
+          "type": "string",
+          "description": "forge version used. e.g. 'forge@1.0.0'"
+        },
+        "spec_version": {
+          "type": "string",
+          "description": "Genesis spec version. e.g. '1.0.0'"
+        }
+      }
+    },
+    "Policy": {
+      "type": "object",
+      "description": "Authority selection rules. Optional.",
+      "properties": {
+        "trust_key": {
+          "type": "string",
+          "description": "Path to trusted public key for verification."
+        },
+        "require_verified": {
+          "type": "boolean",
+          "description": "If true, mount is blocked until verify_shard() passes."
+        }
+      }
+    }
+  }
+}

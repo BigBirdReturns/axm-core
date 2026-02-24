@@ -57,3 +57,36 @@ Rationale:
 - Clarion: the only place that defines encryption and envelope format
 - Spectra: consumes verified shards, and can optionally decrypt Clarion envelopes
 - Nodal Flow: UI consumer only
+
+## Decision 6: Registry placement and ownership
+
+Date: 2026-02-24
+
+Choice: **Registry as a fourth pillar at axm-core root, above all subsystems**
+
+Rationale:
+- Genesis, Forge, Spectra, and Clarion must remain name-blind. They operate on
+  shard_ids and cryptographic contracts, not human meaning.
+- Human naming is convention. shard_ids are math. They belong in separate layers.
+- Placing naming inside any subsystem would pollute frozen contracts (Genesis),
+  extraction logic (Forge), or the query engine (Spectra) with mutable,
+  human-centric state.
+- The Registry is the DNS for cryptographic artifacts. It owns:
+  - canonical names (namespace/slug format)
+  - aliases and shorthand refs
+  - pointer stability (current shard_id per name)
+  - append-only lineage (history of why pointers moved)
+  - authority selection rules (policy per artifact)
+  - lockfile export for reproducible runs
+
+Implementation:
+- `registry/artifacts.json` — file-backed store (promotable to SQLite or a shard)
+- `registry/resolve.py` — Registry class with resolve, set_current, add_alias,
+  list_history, export_lockfile, add_artifact
+- `registry/schema.json` — machine-readable schema, validated on load and save
+- `registry/SCHEMA.md` — human contract for artifacts.json and axm.lock.json
+- `cli/CONTRACT.md` — unified CLI verb reference and machine output contract
+
+The unified `axm_cli.py` at root imports Registry only. It treats Genesis and
+Forge as subprocesses and Spectra as an HTTP service. Human names never reach
+any subsystem. Only shard_ids do.

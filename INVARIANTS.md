@@ -73,14 +73,6 @@ writes ext/locators@1.parquet keyed by evidence_addr. Core tables unchanged.
 
 **INV-20: Every factual statement must cite a shard claim.** Uncited = flagged.
 
-## Change Checklist
-
-1. `py_compile` on all changed files
-2. `pytest genesis/tests/` all pass
-3. Gold shard still verifies
-4. New shards with ext/ verify
-5. No invariant violated
-
 ## Post-Quantum (v1.1.0)
 
 **INV-21: PQ is default, Ed25519 is backward-compatible.**
@@ -93,3 +85,26 @@ Same key + same message = same signature. No nonce. No randomness. Reproducible 
 **INV-23: Key convention is sk||pk (3840 bytes) for ML-DSA-44.**
 Secret key alone is 2528 bytes. Combined format (sk||pk = 3840 bytes) is canonical for
 key storage. The compiler accepts either format.
+
+## Registry (Naming Layer)
+
+**INV-24: Registry owns naming. Genesis, Forge, and Spectra are name-blind.**
+Human refs resolve to shard_ids at the Registry layer only. No subsystem below the
+Registry ever receives or stores a human-readable artifact name.
+
+**INV-25: Registry can move pointers. Registry never rewrites shards.**
+Supersession is pointer movement plus lineage edges, not shard mutation.
+History entries are append-only. No entry is ever deleted or modified.
+
+**INV-26: axm.lock.json pins are immutable snapshots.**
+Locked runs resolve from the lockfile, not from registry state.
+A pinned shard_id cannot be changed by a registry update.
+This is the "policy shifts cannot move my feet" guarantee.
+
+## Change Checklist
+
+1. `py_compile` on all changed files
+2. `pytest genesis/tests/` all pass
+3. Gold shard still verifies
+4. New shards with ext/ verify
+5. No invariant violated
