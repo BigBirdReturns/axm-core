@@ -6,6 +6,7 @@ try:
 except Exception:
     pa = None  # type: ignore
 
+
 class ErrorCode(str, Enum):
     E_LAYOUT_DIRTY = "E_LAYOUT_DIRTY"
     E_LAYOUT_MISSING = "E_LAYOUT_MISSING"
@@ -114,5 +115,14 @@ REQUIRED_SIG_FILES = {"manifest.sig", "publisher.pub"}
 REQUIRED_GRAPH_FILES = {"entities.parquet", "claims.parquet", "provenance.parquet"}
 REQUIRED_EVIDENCE_FILES = {"spans.parquet"}
 
+# Legacy aliases (used by older code paths)
 PUBKEY_LEN = 32
 SIG_LEN = 64
+
+# Suite-aware key/sig sizes (v1.1+)
+KNOWN_SUITES = {"ed25519", "axm-blake3-mldsa44"}
+
+SUITE_SIZES = {
+    "ed25519": {"pk": 32, "sig": 64},
+    "axm-blake3-mldsa44": {"pk": 1312, "sig": 2420},
+}

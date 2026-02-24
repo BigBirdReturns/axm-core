@@ -80,3 +80,16 @@ writes ext/locators@1.parquet keyed by evidence_addr. Core tables unchanged.
 3. Gold shard still verifies
 4. New shards with ext/ verify
 5. No invariant violated
+
+## Post-Quantum (v1.1.0)
+
+**INV-21: PQ is default, Ed25519 is backward-compatible.**
+New shards use `axm-blake3-mldsa44`. Old Ed25519 shards verify without modification.
+The `suite` field in manifest identifies the signing algorithm. Absent means Ed25519.
+
+**INV-22: ML-DSA-44 signatures are deterministic.**
+Same key + same message = same signature. No nonce. No randomness. Reproducible builds.
+
+**INV-23: Key convention is sk||pk (3840 bytes) for ML-DSA-44.**
+Secret key alone is 2528 bytes. Combined format (sk||pk = 3840 bytes) is canonical for
+key storage. The compiler accepts either format.

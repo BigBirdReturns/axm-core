@@ -252,7 +252,7 @@ def run_pipeline(
                     block_map.append({
                         "byte_start": byte_pos,
                         "byte_end": byte_pos + len(block_bytes),
-                        "locator": block.locator.to_dict(),
+                        "locator": block.locator,  # already a dict from extractors.py
                     })
                     byte_pos += len(block_bytes)
                     if i < len(extracted_doc.blocks) - 1:
@@ -426,6 +426,49 @@ def run_pipeline(
                 log(f"  Merkle root: {merkle[:60]}...", "dim")
                 log(f"  Entities:    {stats.get('entities', 0)}", "dim")
                 log(f"  Claims:      {stats.get('claims', 0)}", "dim")
+
+                # -- Derivation Passes (temporal, confidence, coords) --
+                # Runs after Genesis so entities.parquet exists for coord assignment.
+                # New ext/ files trigger a re-sign so Merkle covers them.
+                if cand.exists():
+                    log("\n[Derive] Running post-compilation passes...", "stage")
+                    try:
+                        from axm_forge.derivation import run_temporal_pass, run_confidence_pass
+                        from axm_forge.derivation.coords import run_coords_pass
+
+                        t_res = run_temporal_pass(cand, shard_dir)
+                        if t_res.get("written"):
+                            log(f"  temporal: {t_res['temporal_rows']} rows -> ext/temporal.parquet", "ok")
+                        else:
+                            log("  temporal: no temporal claims found", "dim")
+
+                        c_res = run_confidence_pass(cand, out_dir)
+                        if c_res.get("written"):
+                            log(f"  confidence: mean={c_res['mean']:.3f} ({c_res['total']} candidates)", "ok")
+
+                        co_res = run_coords_pass(shard_dir)
+                        if co_res.get("written"):
+                            log(f"  coords: {co_res['rows']} entities -> ext/coords.parquet", "ok")
+                        else:
+                            log(f"  coords: {co_res.get('reason', 'skipped')}", "dim")
+
+                        # Re-sign if new ext/ files were written (covers them in Merkle)
+                        ext_dir = shard_dir / "ext"
+                        new_ext = [f for f in (ext_dir.iterdir() if ext_dir.exists() else [])
+                                   if f.is_file() and f.name not in {"locators.parquet"}
+                                   and not f.name.startswith(".")]
+                        if new_ext:
+                            log("  Re-signing shard to cover new ext/ files...", "dim")
+                            ok2 = compile_generic_shard(cfg)
+                            if ok2:
+                                log("  Re-sign complete", "ok")
+                            else:
+                                log("  Re-sign failed -- ext/ files NOT in Merkle", "warn")
+                        report["derivation"] = {"temporal": t_res, "confidence": c_res, "coords": co_res}
+                    except ImportError as _de:
+                        log(f"  Derivation passes unavailable: {_de}", "dim")
+                    except Exception as _de:
+                        log(f"  Derivation passes error: {_de}", "warn")
             else:
                 log(f"  Genesis compilation FAILED", "err")
                 return report

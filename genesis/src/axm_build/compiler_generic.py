@@ -24,7 +24,7 @@ from .schemas import (
     VALID_OBJECT_TYPES,
     VALID_TIERS,
 )
-from .sign import signing_key_from_private_key_bytes
+from .sign import signing_key_from_private_key_bytes, mldsa44_keygen, MLDSAKeyPair, SUITE_MLDSA44, SUITE_ED25519
 
 
 @dataclass(frozen=True)
@@ -32,11 +32,12 @@ class CompilerConfig:
     source_path: Path
     candidates_path: Path
     out_dir: Path
-    private_key: bytes
+    private_key: bytes  # 32 bytes for ed25519, 2528 bytes for mldsa44 (or ignored if mldsa_keypair set)
     publisher_id: str
     publisher_name: str
     namespace: str
     created_at: str
+    suite: str = "axm-blake3-mldsa44"  # "ed25519" for legacy, "axm-blake3-mldsa44" for post-quantum
 
 
 def _b32_id(prefix: str, data: str) -> str:
@@ -235,20 +236,20 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
     if locator_rows:
         _write_locators_extension(cfg.out_dir / "ext" / "locators.parquet", locator_rows)
 
-    # Manifest + signatures
-    merkle_root = compute_merkle_root(cfg.out_dir)
+    # Manifest + signatures — suite-aware
+    merkle_root = compute_merkle_root(cfg.out_dir, suite=cfg.suite)
     # Detect active extensions (files in ext/)
     ext_dir = cfg.out_dir / "ext"
     active_extensions = []
     if ext_dir.exists():
         for f in sorted(ext_dir.iterdir()):
             if f.is_file() and not f.name.startswith("."):
-                # Extension name derived from filename: locators.parquet -> locators@1
                 stem = f.stem
                 active_extensions.append(f"{stem}@1")
 
     manifest = {
         "spec_version": "1.0.0",
+        "suite": cfg.suite,
         "shard_id": f"shard_blake3_{merkle_root}",
         "created_at": cfg.created_at,
         "metadata": {"title": cfg.source_path.name, "namespace": cfg.namespace},
@@ -258,20 +259,52 @@ def compile_generic_shard(cfg: CompilerConfig) -> bool:
         "integrity": {"algorithm": "blake3", "merkle_root": merkle_root},
         "statistics": {"entities": len(ent_rows), "claims": len(claim_rows)},
     }
-    # Only add extensions key if extensions exist - preserves hash stability
     if active_extensions:
         manifest["extensions"] = active_extensions
 
     manifest_bytes = dumps_canonical_json(manifest)
     (cfg.out_dir / "manifest.json").write_bytes(manifest_bytes)
 
-    sk = signing_key_from_private_key_bytes(cfg.private_key)
-    (cfg.out_dir / "sig" / "publisher.pub").write_bytes(bytes(sk.verify_key))
-    (cfg.out_dir / "sig" / "manifest.sig").write_bytes(sk.sign(manifest_bytes).signature)
+    # Sign with the appropriate suite
+    if cfg.suite == SUITE_MLDSA44:
+        from .sign import mldsa44_keygen, mldsa44_sign
+        # ML-DSA-44: pk is NOT derivable from sk (unlike Ed25519).
+        # Convention: pass sk||pk (3840 bytes) or sk-only (2528, fresh keypair).
+        if len(cfg.private_key) == 3840:
+            # Full keypair blob: sk (2528) || pk (1312)
+            sk_bytes = cfg.private_key[:2528]
+            pk_bytes = cfg.private_key[2528:]
+            sig = mldsa44_sign(sk_bytes, manifest_bytes)
+            (cfg.out_dir / "sig" / "publisher.pub").write_bytes(pk_bytes)
+            (cfg.out_dir / "sig" / "manifest.sig").write_bytes(sig)
+        elif len(cfg.private_key) == 2528:
+            # SK only — sign with it, but we need pk from somewhere.
+            # Check if publisher.pub already exists (e.g. caller pre-placed it).
+            pub_path = cfg.out_dir / "sig" / "publisher.pub"
+            if pub_path.exists() and pub_path.stat().st_size == 1312:
+                sig = mldsa44_sign(cfg.private_key, manifest_bytes)
+                (cfg.out_dir / "sig" / "manifest.sig").write_bytes(sig)
+            else:
+                # No pk available — generate fresh keypair, discard caller's sk.
+                kp = mldsa44_keygen()
+                sig = kp.sign(manifest_bytes)
+                (cfg.out_dir / "sig" / "publisher.pub").write_bytes(kp.public_key)
+                (cfg.out_dir / "sig" / "manifest.sig").write_bytes(sig)
+        else:
+            # Unknown key size — generate fresh keypair.
+            kp = mldsa44_keygen()
+            sig = kp.sign(manifest_bytes)
+            (cfg.out_dir / "sig" / "publisher.pub").write_bytes(kp.public_key)
+            (cfg.out_dir / "sig" / "manifest.sig").write_bytes(sig)
+    else:
+        # Legacy Ed25519
+        sk = signing_key_from_private_key_bytes(cfg.private_key)
+        (cfg.out_dir / "sig" / "publisher.pub").write_bytes(bytes(sk.verify_key))
+        (cfg.out_dir / "sig" / "manifest.sig").write_bytes(sk.sign(manifest_bytes).signature)
 
-    # Verify using the publisher key as trusted anchor for this build.
+    # Self-verify using the publisher key as trusted anchor.
     with tempfile.NamedTemporaryFile(delete=False) as tf:
-        tf.write(bytes(sk.verify_key))
+        tf.write((cfg.out_dir / "sig" / "publisher.pub").read_bytes())
         trusted_path = Path(tf.name)
 
     try:

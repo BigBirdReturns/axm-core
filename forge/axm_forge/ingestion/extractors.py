@@ -319,6 +319,211 @@ def extract_xml(path: Path) -> ExtractedDocument:
     return ExtractedDocument(blocks=[block], source_path=str(path), format="xml")
 
 
+def extract_xbrl(path: Path) -> ExtractedDocument:
+    """XBRL financial reports — schema IS extraction, tier-0 candidates bypass LLM.
+
+    Parses contextRef facts from XBRL XML into structured candidates.
+    Subject = filing entity, predicate = XBRL concept, object = value.
+    """
+    import xml.etree.ElementTree as ET
+
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    candidates = []
+
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        # Fallback: treat as plain XML text
+        return extract_xml(path)
+
+    # Find entity identifier for subject
+    entity_label = "entity"
+    for elem in root.iter():
+        if elem.tag.endswith("identifier") or elem.tag.endswith("EntityCommonStockSharesOutstanding"):
+            if elem.text and elem.text.strip():
+                entity_label = elem.text.strip()[:80]
+                break
+
+    for elem in root.iter():
+        if elem.get("contextRef") is None:
+            continue
+        tag = elem.tag
+        concept = tag.split("}")[-1] if "}" in tag else tag
+        if concept.lower() in ("context", "unit", "schemaref", "identifier", "period"):
+            continue
+        value = (elem.text or "").strip()
+        if not value:
+            continue
+        # Format concept as readable predicate
+        predicate = re.sub(r"([a-z])([A-Z])", r"\1_\2", concept).lower()
+        unit_ref = elem.get("unitRef", "")
+        unit_suffix = " (USD)" if unit_ref and "usd" in unit_ref.lower() else ""
+        evidence = f"{concept}: {value}{unit_suffix}"
+        candidates.append({
+            "subject": entity_label,
+            "predicate": predicate,
+            "object": value + (unit_suffix.strip() or ""),
+            "object_type": "literal:string",
+            "tier": 0,
+            "confidence": 1.0,
+            "evidence": evidence,
+            "locator": {"kind": "xml", "file_path": str(path)},
+        })
+
+    block_text = f"XBRL filing: {path.name}\n" + "\n".join(
+        c["evidence"] for c in candidates[:50]
+    )
+    blocks = [DocumentBlock(
+        text=block_text,
+        locator={"kind": "xml", "file_path": str(path)},
+    )]
+
+    return ExtractedDocument(
+        blocks=blocks,
+        source_path=str(path),
+        format="xbrl",
+        tier0_candidates=candidates if candidates else None,
+        metadata={"concept_count": len(candidates)},
+    )
+
+
+def extract_ical(path: Path) -> ExtractedDocument:
+    """iCalendar — calendar events as tier-0 candidates."""
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    candidates = []
+    current: dict = {}
+    in_event = False
+
+    for line in raw.splitlines():
+        line = line.strip()
+        if line == "BEGIN:VEVENT":
+            in_event = True
+            current = {}
+        elif line == "END:VEVENT":
+            summary = current.get("SUMMARY", "Untitled Event")
+            dtstart = current.get("DTSTART", "")
+            dtend = current.get("DTEND", "")
+            location = current.get("LOCATION", "")
+            evidence = f"{summary} from {dtstart} to {dtend}"
+            if location:
+                evidence += f" at {location}"
+            candidates.append({
+                "subject": summary,
+                "predicate": "scheduled_at",
+                "object": dtstart,
+                "object_type": "literal:string",
+                "tier": 0,
+                "confidence": 1.0,
+                "evidence": evidence,
+                "locator": {"kind": "txt", "file_path": str(path)},
+            })
+            if location:
+                candidates.append({
+                    "subject": summary,
+                    "predicate": "located_at",
+                    "object": location,
+                    "object_type": "literal:string",
+                    "tier": 0,
+                    "confidence": 1.0,
+                    "evidence": evidence,
+                    "locator": {"kind": "txt", "file_path": str(path)},
+                })
+            in_event = False
+        elif in_event and ":" in line:
+            key_part, _, val = line.partition(":")
+            key = key_part.split(";")[0]
+            current[key] = val
+
+    block_text = "\n".join(c["evidence"] for c in candidates)
+    blocks = [DocumentBlock(
+        text=block_text or raw,
+        locator={"kind": "txt", "file_path": str(path)},
+    )]
+
+    return ExtractedDocument(
+        blocks=blocks,
+        source_path=str(path),
+        format="ical",
+        tier0_candidates=candidates if candidates else None,
+        metadata={"event_count": len(candidates)},
+    )
+
+
+def extract_rss(path: Path) -> ExtractedDocument:
+    """RSS/Atom feeds — feed items as tier-0 candidates."""
+    import xml.etree.ElementTree as ET
+
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    candidates = []
+
+    def _text(elem: Any, tag: str) -> str:
+        child = elem.find(tag)
+        return (child.text or "").strip() if child is not None else ""
+
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        block = DocumentBlock(text=raw, locator={"kind": "xml", "file_path": str(path)})
+        return ExtractedDocument(blocks=[block], source_path=str(path), format="rss")
+
+    # RSS
+    for item in root.iter("item"):
+        title = _text(item, "title")
+        if not title:
+            continue
+        link = _text(item, "link")
+        pub_date = _text(item, "pubDate")
+        desc = _text(item, "description")[:200]
+        evidence = f"{title} ({pub_date}): {desc}" if desc else f"{title} ({pub_date})"
+        candidates.append({
+            "subject": title,
+            "predicate": "published_at",
+            "object": pub_date or link,
+            "object_type": "literal:string",
+            "tier": 0,
+            "confidence": 1.0,
+            "evidence": evidence,
+            "locator": {"kind": "xml", "file_path": str(path)},
+        })
+
+    # Atom
+    ATOM = "http://www.w3.org/2005/Atom"
+    for entry in root.iter(f"{{{ATOM}}}entry"):
+        title_elem = entry.find(f"{{{ATOM}}}title")
+        title = (title_elem.text or "").strip() if title_elem is not None else ""
+        if not title:
+            continue
+        updated_elem = entry.find(f"{{{ATOM}}}updated")
+        updated = (updated_elem.text or "").strip() if updated_elem is not None else ""
+        link_elem = entry.find(f"{{{ATOM}}}link")
+        link = (link_elem.get("href") or "") if link_elem is not None else ""
+        evidence = f"{title} ({updated})" if updated else title
+        candidates.append({
+            "subject": title,
+            "predicate": "published_at",
+            "object": updated or link,
+            "object_type": "literal:string",
+            "tier": 0,
+            "confidence": 1.0,
+            "evidence": evidence,
+            "locator": {"kind": "xml", "file_path": str(path)},
+        })
+
+    block_text = "\n".join(c["evidence"] for c in candidates)
+    blocks = [DocumentBlock(
+        text=block_text or raw,
+        locator={"kind": "xml", "file_path": str(path)},
+    )]
+
+    return ExtractedDocument(
+        blocks=blocks,
+        source_path=str(path),
+        format="rss",
+        tier0_candidates=candidates if candidates else None,
+        metadata={"item_count": len(candidates)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
@@ -333,7 +538,10 @@ _EXTRACTORS = {
     ".pptx": extract_pptx,
     ".csv": extract_csv, ".tsv": extract_csv,
     ".json": extract_json, ".jsonl": extract_json,
-    ".xml": extract_xml, ".xbrl": extract_xml,
+    ".xml": extract_xml,
+    ".xbrl": extract_xbrl,
+    ".ics": extract_ical, ".ical": extract_ical,
+    ".rss": extract_rss, ".atom": extract_rss,
 }
 
 SUPPORTED_EXTENSIONS = sorted(_EXTRACTORS.keys())

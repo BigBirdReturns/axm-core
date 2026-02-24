@@ -236,6 +236,12 @@ def verify_shard(shard_path: str | Path, trusted_key_path: Path, mode: str = "st
     if errors:
         return {"shard": str(shard_path), "status": "FAIL", "error_count": len(errors), "errors": errors}
 
+    # Determine suite: if manifest has "suite" field, use it. Otherwise legacy ed25519.
+    suite = manifest.get("suite", "ed25519")
+    if suite not in ("ed25519", "axm-blake3-mldsa44"):
+        _err(errors, ErrorCode.E_MANIFEST_SCHEMA, f"Unknown suite: {suite}")
+        return {"shard": str(shard_path), "status": "FAIL", "error_count": len(errors), "errors": errors}
+
     # 3) Crypto (trusted anchor)
     try:
         trusted_pub = trusted_key_path.read_bytes()
@@ -254,13 +260,21 @@ def verify_shard(shard_path: str | Path, trusted_key_path: Path, mode: str = "st
         _err(errors, ErrorCode.E_SIG_INVALID, "Shard publisher.pub does not match trusted key")
         return {"shard": str(shard_path), "status": "FAIL", "error_count": len(errors), "errors": errors}
 
-    manifest_ok = verify_manifest_signature(manifest_bytes, root / "sig/manifest.sig", trusted_key_path)
+    # Validate key size matches suite
+    from .crypto import SUITE_SIZES
+    expected_pk_size = SUITE_SIZES.get(suite, {}).get("pk")
+    if expected_pk_size and len(shard_pub) != expected_pk_size:
+        _err(errors, ErrorCode.E_SIG_INVALID,
+             f"Publisher key size {len(shard_pub)} doesn't match suite {suite} (expected {expected_pk_size})")
+        return {"shard": str(shard_path), "status": "FAIL", "error_count": len(errors), "errors": errors}
+
+    manifest_ok = verify_manifest_signature(manifest_bytes, root / "sig/manifest.sig", trusted_key_path, suite=suite)
     if not manifest_ok:
         _err(errors, ErrorCode.E_SIG_INVALID, "Signature verification failed (trusted key)")
         return {"shard": str(shard_path), "status": "FAIL", "error_count": len(errors), "errors": errors}
 
     try:
-        computed = compute_merkle_root(root)
+        computed = compute_merkle_root(root, suite=suite)
     except Exception as e:
         _err(errors, ErrorCode.E_LAYOUT_DIRTY, f"Cannot compute Merkle root: {e}")
         return {"shard": str(shard_path), "status": "FAIL", "error_count": len(errors), "errors": errors}

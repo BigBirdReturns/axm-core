@@ -3,213 +3,73 @@
   import { open } from "@tauri-apps/api/dialog";
   import { onMount, afterUpdate, tick } from "svelte";
 
-  // State
+  // ── Core state ─────────────────────────────────────────────────────────
   let input = "";
   let isProcessing = false;
-  let cortexStatus = "checking...";
-  
-  // Shard state (NEW)
-  let shardMounted = false;
-  let shardInfo = null;
-  let shardStats = null;
-  let showStats = false;
-  
-  // Source verification panel (NEW)
-  let showSourceViewer = false;
-  let selectedSource = null;
-  let sourceContent = "";
-  let sourceVerified = null;
-  
-  // The Chronicle: Everything accumulates here
+  let cortexOnline = false;
+  let availableModels = [];
+  let selectedModel = "llama3";
+
+  // ── Chronicle ───────────────────────────────────────────────────────────
   let chronicle = [];
-  let trash = []; // Deleted nodes go here for recovery
+  let trash = [];
   let chronicleContainer;
   let showNewNodesIndicator = false;
   let userScrolledUp = false;
-  let lastChronicleLen = 0;
-  
-  // Collapsing: nodes older than threshold auto-collapse to prevent DOM death
-  let expandedNodes = new Set();   // Manual expand override (prevents auto-collapse)
-  let collapsedNodes = new Set();  // Manual collapse override (forces collapse)
-  const COLLAPSE_THRESHOLD = 20;   // Nodes beyond this from the end are collapsed
-  
-  function isNodeCollapsed(node, index) {
-    // Manual force-collapse always wins
-    if (collapsedNodes.has(node.id)) return true;
+  let collapsedNodes = new Set();
 
-    // Never collapse short system nodes
-    if (node.type === "intent" || node.type === "error" || node.type === "system") return false;
+  // ── Vault ───────────────────────────────────────────────────────────────
+  let shardMounted = false;
+  let shardInfo = null;
+  let shardError = null;
+  let shardStats = null;
+  let maxTier = null;
 
-    // Manual expand override blocks auto-collapse
-    if (expandedNodes.has(node.id)) return false;
+  // ── Panels ──────────────────────────────────────────────────────────────
+  let showSourceViewer = false;
+  let selectedSource = null;
+  let sourceContent = null;
+  let sourceVerified = null;
+  let showStats = false;
+  let showTrash = false;
+  let showSettings = false;
 
-    // Collapse policy based on age
-    const distanceFromEnd = chronicle.length - 1 - index;
-    const tooOld = distanceFromEnd > COLLAPSE_THRESHOLD;
+  // ── Annotation ──────────────────────────────────────────────────────────
+  let editingAnnotation = null;
+  let annotationText = "";
 
-    if (!tooOld) return false;
-
-    // Chat can be long and DOM-killing
-    if (node.type === "chat") {
-      return (node.content || "").length > 400;
-    }
-
-    // Heavy nodes collapse by default when old
-    return (
-      node.type === "viz" ||
-      node.type === "code" ||
-      node.type === "write" ||
-      node.type === "audio" ||
-      node.type === "image" ||
-      node.type === "citation"
-    );
-  }
-  
-  function toggleSet(setRef, nodeId) {
-    const next = new Set(setRef);
-    if (next.has(nodeId)) next.delete(nodeId);
-    else next.add(nodeId);
-    return next;
-  }
-
-  async function expandNode(node) {
-    // Expanding should clear forced-collapse
-    collapsedNodes = (() => {
-      const next = new Set(collapsedNodes);
-      next.delete(node.id);
-      return next;
-    })();
-
-    // Add to expanded set
-    expandedNodes = toggleSet(expandedNodes, node.id);
-    await tick();
-
-    // If this is a viz node, the container now exists
-    if (node.type === "viz") {
-      executeD3(node.id, node.content);
-    }
-  }
-
-  async function collapseNode(node) {
-    // Collapsing should clear manual expand override
-    expandedNodes = (() => {
-      const next = new Set(expandedNodes);
-      next.delete(node.id);
-      return next;
-    })();
-
-    // Add to collapsed set
-    collapsedNodes = toggleSet(collapsedNodes, node.id);
-    await tick();
-  }
-
-  // The System Prompt - Revised promise: history preserved, revisions allowed
-  const SYSTEM_PROMPT = `You are Nodal Flow, a sovereign local-first AI interface.
-You run entirely on the user's hardware. You are not a cloud service.
-
-THE CHRONICLE MODEL:
-Everything the user creates accumulates on an infinite scroll.
-Nothing is silently replaced. Revisions create new nodes and preserve history.
-Each response becomes a permanent node in their timeline unless they explicitly delete it.
-
-RESPONSE RULES:
-
-1. VISUALIZATION requests (graph, chart, plot, diagram, visualize):
-   - Output valid D3.js v7 code that creates an SVG
-   - Wrap in <NODE type="viz" title="...">...</NODE>
-   - Use the pre-defined variables: container (d3 selection), width (560), height (360)
-   - Start your code with: const svg = container.append("svg").attr("width", width).attr("height", height);
-   - Keep visualizations self-contained
-
-2. CODE requests (write code, script, function):
-   - Output clean, working code
-   - Wrap in <NODE type="code" lang="..." title="...">...</NODE>
-   - Include the language attribute
-
-3. WRITING requests (write, draft, compose text, essay, email):
-   - Output markdown-formatted text
-   - Wrap in <NODE type="write" title="...">...</NODE>
-
-4. AUDIO/MUSIC requests (beat, melody, song):
-   - Describe what you would generate
-   - Wrap in <NODE type="audio" title="...">...</NODE>
-   - (Audio generation coming in v0.2)
-
-5. IMAGE requests (image, picture, illustration, cover art):
-   - Describe what you would generate
-   - Wrap in <NODE type="image" title="...">...</NODE>
-   - (Image generation coming in v0.2)
-
-6. REVISION requests (edit, change, update a previous node):
-   - Create a NEW node with the revision
-   - Reference the original with: derives_from="[original title or description]"
-   - Wrap in <NODE type="..." title="..." derives_from="...">...</NODE>
-
-7. CHAT responses (questions, conversation):
-   - Respond naturally in plain text
-   - No NODE tags needed
-
-CRITICAL: Always include a descriptive title attribute. This helps the user scan their chronicle.
-
-You are sovereign. You are local. Everything accumulates. History is preserved.`;
-
+  // ── Lifecycle ───────────────────────────────────────────────────────────
   onMount(async () => {
     try {
-      cortexStatus = await invoke("check_cortex_status");
+      await invoke("check_cortex_status");
+      cortexOnline = true;
     } catch (e) {
-      cortexStatus = "⚠️ Offline - run: ollama serve";
+      cortexOnline = false;
     }
-    
-    // Run health check
-    runDoctor();
-    
-    // Global keyboard handler
-    const handleGlobalKeydown = (e) => {
-      if (e.key === "Escape") {
-        if (showTrash) showTrash = false;
-        if (editingAnnotation) cancelAnnotation();
-        if (showSourceViewer) showSourceViewer = false;
-        if (showStats) showStats = false;
+    try {
+      availableModels = await invoke("list_models");
+      if (availableModels.length > 0 && !availableModels.includes(selectedModel)) {
+        selectedModel = availableModels[0];
       }
-    };
-    window.addEventListener('keydown', handleGlobalKeydown);
-    
-    return () => {
-      window.removeEventListener('keydown', handleGlobalKeydown);
-    };
+    } catch (e) { availableModels = []; }
   });
 
-  // Gated autoscroll: only scroll if user is near bottom
   afterUpdate(async () => {
     if (!chronicleContainer) return;
-
-    const grew = chronicle.length > lastChronicleLen;
-    lastChronicleLen = chronicle.length;
-
     if (!userScrolledUp) {
       await tick();
       chronicleContainer.scrollTop = chronicleContainer.scrollHeight;
       showNewNodesIndicator = false;
-      return;
-    }
-
-    if (grew) {
+    } else if (!isProcessing && chronicle.length > 0) {
       showNewNodesIndicator = true;
     }
   });
 
   function handleScroll() {
     if (!chronicleContainer) return;
-    
     const { scrollTop, scrollHeight, clientHeight } = chronicleContainer;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    
-    // User is "near bottom" if within 100px
-    userScrolledUp = distanceFromBottom > 100;
-    
-    if (!userScrolledUp) {
-      showNewNodesIndicator = false;
-    }
+    userScrolledUp = (scrollHeight - scrollTop - clientHeight) > 100;
+    if (!userScrolledUp) showNewNodesIndicator = false;
   }
 
   function scrollToBottom() {
@@ -220,47 +80,19 @@ You are sovereign. You are local. Everything accumulates. History is preserved.`
     }
   }
 
-  // ============================================================================
-  // SHARD MANAGEMENT (NEW)
-  // ============================================================================
-
+  // ── Vault operations ────────────────────────────────────────────────────
   async function mountShard() {
-    const selected = await open({
-      directory: true,
-      title: "Select AXM Shard Directory"
-    });
-    
-    if (selected) {
-      try {
-        shardInfo = await invoke("mount_vault", { path: selected });
-        shardMounted = true;
-        
-        // Add system notification to chronicle
-        addNode({
-          type: "system",
-          content: `📦 Mounted shard: ${shardInfo.title} (${shardInfo.claim_count} claims, ${shardInfo.entity_count} entities)`
-        });
-        
-        
-        // Load initial claims
-        const initialClaims = await invoke("get_all_claims", { max_tier: 2, limit: 100 });
-        for (const claim of initialClaims) {
-          addNode({
-            type: "citation",
-            claim,
-            content: `${claim.subject} ${claim.predicate} ${claim.object}`,
-          });
-        }
-
-        // Load stats
-        shardStats = await invoke("get_statistics");
-        
-      } catch (e) {
-        addNode({ 
-          type: "error", 
-          content: `Failed to mount shard: ${e}` 
-        });
-      }
+    try {
+      const selected = await open({ directory: true, title: "Select AXM Genesis Shard" });
+      if (!selected) return;
+      shardError = null;
+      const info = await invoke("mount_vault", { path: selected });
+      shardInfo = info;
+      shardMounted = true;
+      try { shardStats = await invoke("get_statistics"); } catch (e) {}
+      appendSystem(`Shard mounted: ${info.title} · ${info.claim_count} claims · ${trustLabel(info.trust_level)}`);
+    } catch (e) {
+      shardError = e.toString();
     }
   }
 
@@ -270,1640 +102,882 @@ You are sovereign. You are local. Everything accumulates. History is preserved.`
       shardMounted = false;
       shardInfo = null;
       shardStats = null;
-      
-      addNode({
-        type: "system",
-        content: "⏏️ Shard unmounted"
-      });
-    } catch (e) {
-      addNode({ 
-        type: "error", 
-        content: `Failed to unmount: ${e}` 
-      });
-    }
+      appendSystem("Shard unmounted.");
+    } catch (e) { shardError = e.toString(); }
   }
 
-  // Document drop → Forge → Genesis → Shard
-  let isCreatingShard = false;
-  let isDragging = false;
+  function appendSystem(msg) {
+    chronicle = [...chronicle, { id: generateId(), type: "system", content: msg, timestamp: new Date() }];
+  }
 
-  async function handleDocumentDrop(e) {
-    e.preventDefault();
-    isDragging = false;
-    
-    const files = e.dataTransfer?.files;
-    if (!files || files.length === 0) return;
-    
-    const file = files[0];
-    const filePath = file.path; // Tauri provides this
-    
-    if (!filePath) {
-      addNode({ type: "error", content: "Could not get file path from drop" });
+  function trustLabel(level) {
+    return { Verified: "✓ Verified", SignatureOnly: "◑ Partial", Unverified: "○ Unverified", Failed: "✗ Failed" }[level] || level;
+  }
+  function trustClass(level) {
+    return { Verified: "verified", SignatureOnly: "partial", Unverified: "unverified", Failed: "failed" }[level] || "unverified";
+  }
+
+  // ── Source verification ─────────────────────────────────────────────────
+  async function openSourceViewer(claim) {
+    selectedSource = claim;
+    sourceContent = null;
+    sourceVerified = null;
+    showSourceViewer = true;
+    if (!claim.source_hash || claim.byte_start < 0) {
+      sourceContent = "(No provenance data for this claim)";
       return;
     }
-    
-    isCreatingShard = true;
-    addNode({ type: "system", content: `🔨 Creating shard from: ${file.name}...` });
-    
     try {
-      const outputDir = `./shards/${file.name.replace(/\.[^/.]+$/, "")}`;
-      
-      const shardPath = await invoke("create_shard_from_document", {
-        doc_path: filePath,
-        output_dir: outputDir,
-        namespace: "axm:user",
-        publisher_id: "@nodal-flow",
-        publisher_name: "Nodal Flow User",
+      sourceContent = await invoke("get_content_slice", {
+        sourceHash: claim.source_hash,
+        byteStart: claim.byte_start,
+        byteEnd: claim.byte_end,
       });
-      
-      addNode({ type: "system", content: `✓ Shard created: ${shardPath}` });
-      
-      // Auto-mount the new shard
-      shardInfo = await invoke("mount_vault", { path: shardPath });
-      shardMounted = true;
-      
-      // Load claims
-      const initialClaims = await invoke("get_all_claims", { max_tier: 2, limit: 100 });
-      for (const claim of initialClaims) {
-        addNode({
-          type: "citation",
-          claim: claim,
-          content: `${claim.subject} → ${claim.predicate} → ${claim.object}`,
-        });
-      }
-      
-      addNode({ type: "system", content: `📦 Mounted: ${shardInfo.title || 'Shard'} (${initialClaims.length} claims)` });
-      
+      sourceVerified = await invoke("verify_claim", { claim });
     } catch (e) {
-      addNode({ type: "error", content: `Shard creation failed: ${e}` });
-    } finally {
-      isCreatingShard = false;
+      sourceContent = `Error: ${e}`;
+      sourceVerified = false;
     }
   }
 
-  // Doctor check on startup
-  async function runDoctor() {
-    try {
-      const health = await invoke("doctor");
-      console.log("AXM Stack Health:", health);
-      if (!health.all_ok) {
-        addNode({ 
-          type: "error", 
-          content: `⚠️ Stack health check: Python=${health.python_version}, Forge=${health.forge_importable ? '✓' : '✗'}, Genesis=${health.genesis_build_importable && health.genesis_verify_importable ? '✓' : '✗'}` 
-        });
-      }
-    } catch (e) {
-      console.error("Doctor failed:", e);
-    }
-  }
-
-  async function toggleStats() {
+  // ── Browse ──────────────────────────────────────────────────────────────
+  async function browseAllClaims() {
     if (!shardMounted) return;
-    
-    if (!showStats) {
-      try {
-        shardStats = await invoke("get_statistics");
-        showStats = true;
-      } catch (e) {
-        addNode({ 
-          type: "error", 
-          content: `Failed to load stats: ${e}` 
-        });
-      }
-    } else {
-      showStats = false;
+    try {
+      const claims = await invoke("get_all_claims", { maxTier, limit: 50 });
+      chronicle = [...chronicle, {
+        id: generateId(), type: "browse",
+        title: `All Claims — ${shardInfo?.title || "shard"}`,
+        claims, timestamp: new Date(),
+      }];
+    } catch (e) {
+      chronicle = [...chronicle, { id: generateId(), type: "error", content: `Browse failed: ${e}`, timestamp: new Date() }];
     }
   }
 
-  // ============================================================================
-  // QUERY HANDLING (UPDATED FOR VAULT)
-  // ============================================================================
-
+  // ── Main query ──────────────────────────────────────────────────────────
   async function handleSubmit() {
     if (!input.trim() || isProcessing) return;
-    
+
     const userMessage = input.trim();
-    const requestTimestamp = new Date();
+    const ts = new Date();
     input = "";
     isProcessing = true;
+    userScrolledUp = false;
 
-    // Build all new nodes in a batch
-    let newNodes = [];
-
-    // Add user intent
-    newNodes.push({
-      id: generateId(),
-      type: "intent",
-      content: userMessage,
-      timestamp: requestTimestamp,
-    });
+    let newNodes = [{ id: generateId(), type: "intent", content: userMessage, timestamp: ts }];
 
     try {
       if (shardMounted) {
-        // VAULT-FIRST MODE: Search the vault for relevant claims
-        try {
-          const vaultResults = await invoke("query_vault", { 
-            search_term: userMessage, 
-            max_tier: 2, 
-            limit: 20 
-          });
-          
-          if (vaultResults.length > 0) {
-            // Add citation nodes for each claim
-            for (const claim of vaultResults) {
-              newNodes.push({
-                id: generateId(),
-                type: "citation",
-                claim: claim,
-                content: `${claim.subject} ${claim.predicate} ${claim.object}`,
-                evidence: claim.evidence,
-                title: `${claim.subject} ${claim.predicate} ${claim.object}`,
-                source_hash: claim.source_hash,
-                byte_start: claim.byte_start,
-                byte_end: claim.byte_end,
-                tier: claim.tier,
-                timestamp: requestTimestamp,
-              });
-            }
-          }
-        } catch (vaultErr) {
-          // Vault query failed, note it but continue to LLM
-          newNodes.push({
-            id: generateId(),
-            type: "error",
-            content: `Vault query failed: ${vaultErr}`,
-            timestamp: requestTimestamp,
-          });
-        }
+        // Vault path: backend queries shard then calls Ollama with injected context
+        const response = await invoke("query_ollama", {
+          prompt: userMessage,
+          model: selectedModel,
+          maxTier,
+        });
+        newNodes = [...newNodes, ...parseEnrichedResponse(response, ts)];
+      } else {
+        // No vault — plain Ollama with chronicle context
+        const contextPrompt = buildPlainPrompt(userMessage);
+        const raw = await invoke("query_ollama", { prompt: contextPrompt, model: selectedModel });
+        // scaffold backend returns string; v2 returns EnrichedResponse — handle both
+        const text = typeof raw === "string" ? raw : raw.content;
+        newNodes = [...newNodes, ...parseResponse(text, ts)];
       }
-      
-      // Then query Ollama for synthesis (whether or not we found vault results)
-      const contextPrompt = buildPrompt(userMessage);
-      const response = await invoke("query_ollama", { prompt: contextPrompt });
-      
-      // Parse response and add to batch
-      const parsedNodes = parseResponse(response, requestTimestamp);
-      newNodes = [...newNodes, ...parsedNodes];
-      
     } catch (e) {
-      newNodes.push({
-        id: generateId(),
-        type: "error",
-        content: `Cortex error: ${e}`,
-        timestamp: requestTimestamp,
-      });
+      newNodes.push({ id: generateId(), type: "error", content: `${e}`, timestamp: ts });
     }
 
-    // Single batch append
-    chronicle = [...chronicle, ...newNodes.map(normalizeNode)];
-    
-    // Execute D3 for any viz nodes after DOM update
+    chronicle = [...chronicle, ...newNodes];
     await tick();
     for (const node of newNodes) {
-      if (node.type === "viz") {
-        executeD3(node.id, node.content);
-      }
+      if (node.type === "viz") executeD3(node.id, node.content);
     }
-    
     isProcessing = false;
   }
 
-  // ============================================================================
-  // SOURCE VERIFICATION (NEW)
-  // ============================================================================
+  function buildPlainPrompt(userMessage) {
+    const systemPrompt = `You are Nodal Flow, a sovereign local-first AI interface running entirely on the user's hardware.
 
-  async function verifyClaim(claim) {
-    selectedSource = claim;
-    showSourceViewer = true;
-    sourceVerified = null;
-    sourceContent = "Loading...";
-    
-    try {
-      // Get the actual bytes from the source
-      sourceContent = await invoke("get_content_slice", {
-        source_hash: claim.source_hash,
-        byte_start: claim.byte_start,
-        byte_end: claim.byte_end
-      });
-      
-      // Verify match
-      sourceVerified = await invoke("verify_claim", { claim });
-    } catch (e) {
-      sourceVerified = false;
-      sourceContent = `Error retrieving source: ${e}`;
-    }
-  }
+RESPONSE FORMAT:
+- Visualizations: <NODE type="viz" title="...">D3.js v7 code targeting d3.select("#node-canvas-" + nodeId)</NODE>
+- Code: <NODE type="code" lang="..." title="...">code</NODE>
+- Writing: <NODE type="write" title="...">markdown text</NODE>
+- Chat: plain text, no tags`;
 
-  function closeSourceViewer() {
-    showSourceViewer = false;
-    selectedSource = null;
-    sourceContent = "";
-    sourceVerified = null;
-  }
-
-  // ============================================================================
-  // HELPER FUNCTIONS (EXISTING + UPDATED)
-  // ============================================================================
-
-  function buildPrompt(userMessage) {
-    // Include recent chronicle context (last 6 items)
-    const recentContext = chronicle.slice(-6).map(node => {
-      if (node.type === "intent") return `User: ${node.content}`;
-      if (node.type === "chat") return `Assistant: ${node.content}`;
-      if (node.type === "citation") return `[Citation: ${node.title}]`;
-      if (node.title) return `[${node.type}: "${node.title}"]`;
-      return `[${node.type}]`;
+    const ctx = chronicle.slice(-6).map(n => {
+      if (n.type === "intent") return `User: ${n.content}`;
+      if (n.type === "chat") return `Assistant: ${n.content}`;
+      if (n.title) return `[${n.type}: "${n.title}"]`;
+      return `[${n.type}]`;
     }).join("\n");
 
-    return `${SYSTEM_PROMPT}
-
-${recentContext ? "Recent chronicle:\n" + recentContext + "\n" : ""}
-User: ${userMessage}
-Assistant:`;
+    return `${systemPrompt}\n\n${ctx ? "Recent:\n" + ctx + "\n\n" : ""}User: ${userMessage}\nAssistant:`;
   }
 
-  function parseResponse(response, timestamp) {
+  // Parse EnrichedResponse {content, sources, has_verified_context, trust_level}
+  function parseEnrichedResponse(response, timestamp) {
     const nodes = [];
-    
-    // More flexible NODE tag parsing
-    const nodePattern = /<NODE\s+([^>]+)>([\s\S]*?)<\/NODE>/g;
-    let match;
-    let lastIndex = 0;
-    
-    while ((match = nodePattern.exec(response)) !== null) {
-      // Capture any text before this node as chat
-      const textBefore = response.slice(lastIndex, match.index).trim();
-      if (textBefore) {
+    const content = typeof response === "string" ? response : (response.content || "");
+    const sources = typeof response === "object" ? (response.sources || []) : [];
+    const hasVerified = typeof response === "object" ? response.has_verified_context : false;
+
+    const nodeRe = /<NODE\s+type="(\w+)"([^>]*)>([\s\S]*?)<\/NODE>/g;
+    let match, lastIndex = 0;
+
+    while ((match = nodeRe.exec(content)) !== null) {
+      const textBefore = content.slice(lastIndex, match.index).trim();
+      if (textBefore) nodes.push({ id: generateId(), type: "chat", content: textBefore, timestamp, verified: hasVerified });
+
+      const nodeType = match[1];
+      const attrs = match[2];
+      const body = match[3].trim();
+      const getAttr = (name) => { const m = attrs.match(new RegExp(`${name}="([^"]*)"`)); return m ? m[1] : ""; };
+
+      if (nodeType === "citation") {
         nodes.push({
-          id: generateId(),
-          type: "chat",
-          content: textBefore,
-          timestamp: timestamp,
+          id: generateId(), type: "citation",
+          source_hash: getAttr("source_hash"),
+          byte_start: parseInt(getAttr("byte_start") || "-1"),
+          byte_end: parseInt(getAttr("byte_end") || "-1"),
+          subject: getAttr("subject"), predicate: getAttr("predicate"), object: getAttr("object"),
+          evidence: body, timestamp,
+        });
+      } else {
+        nodes.push({
+          id: generateId(), type: nodeType,
+          lang: getAttr("lang") || null, title: getAttr("title") || null,
+          content: body, timestamp,
         });
       }
-      
-      // Parse attributes flexibly
-      const attrString = match[1];
-      const content = match[2].trim();
-      
-      const typeMatch = attrString.match(/type="(\w+)"/);
-      const langMatch = attrString.match(/lang="(\w+)"/);
-      const titleMatch = attrString.match(/title="([^"]*)"/);
-      const derivesMatch = attrString.match(/derives_from="([^"]*)"/);
-      
-      if (typeMatch) {
-        nodes.push({
-          id: generateId(),
-          type: typeMatch[1],
-          lang: langMatch ? langMatch[1] : null,
-          title: titleMatch ? titleMatch[1] : null,
-          derivesFrom: derivesMatch ? derivesMatch[1] : null,
-          content: content,
-          timestamp: timestamp,
-        });
-      }
-      
       lastIndex = match.index + match[0].length;
     }
-    
-    // Capture any remaining text as chat
-    const remaining = response.slice(lastIndex).trim();
-    if (remaining) {
+
+    const remaining = content.slice(lastIndex).trim();
+    if (remaining) nodes.push({ id: generateId(), type: "chat", content: remaining, timestamp, verified: hasVerified });
+    if (nodes.length === 0 && content) nodes.push({ id: generateId(), type: "chat", content, timestamp, verified: hasVerified });
+
+    if (sources.length > 0) {
       nodes.push({
-        id: generateId(),
-        type: "chat",
-        content: remaining,
-        timestamp: timestamp,
+        id: generateId(), type: "sources",
+        title: `${sources.length} verified source${sources.length !== 1 ? "s" : ""}`,
+        claims: sources, timestamp, expanded: false,
       });
     }
-    
-    // If no nodes were parsed, treat entire response as chat
-    if (nodes.length === 0) {
-      nodes.push({
-        id: generateId(),
-        type: "chat",
-        content: response,
-        timestamp: timestamp,
-      });
-    }
-    
     return nodes;
   }
 
-  function addNode(nodeData) {
-    const node = normalizeNode({
-      id: generateId(),
-      timestamp: new Date(),
-      ...nodeData
-    });
-    chronicle = [...chronicle, node];
-  }
+  // Parse plain string response
+  function parseResponse(response, timestamp) {
+    const nodes = [];
+    const nodeRe = /<NODE\s+type="(\w+)"([^>]*)>([\s\S]*?)<\/NODE>/g;
+    let match, lastIndex = 0;
 
-  function normalizeNode(node) {
-    // Handle both derivesFrom and derives_from
-    if (node.derives_from && !node.derivesFrom) {
-      node.derivesFrom = node.derives_from;
-      delete node.derives_from;
+    while ((match = nodeRe.exec(response)) !== null) {
+      const textBefore = response.slice(lastIndex, match.index).trim();
+      if (textBefore) nodes.push({ id: generateId(), type: "chat", content: textBefore, timestamp });
+      const attrs = match[2];
+      const getAttr = (name) => { const m = attrs.match(new RegExp(`${name}="([^"]*)"`)); return m ? m[1] : ""; };
+      nodes.push({
+        id: generateId(), type: match[1],
+        lang: getAttr("lang") || null, title: getAttr("title") || null,
+        content: match[3].trim(), timestamp,
+      });
+      lastIndex = match.index + match[0].length;
     }
-    return node;
+
+    const remaining = response.slice(lastIndex).trim();
+    if (remaining) nodes.push({ id: generateId(), type: "chat", content: remaining, timestamp });
+    if (nodes.length === 0) nodes.push({ id: generateId(), type: "chat", content: response, timestamp });
+    return nodes;
   }
 
-  function generateId() {
-    return `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  function formatTimestamp(ts) {
-    return ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-
-  // D3 execution (existing)
+  // ── D3 execution ────────────────────────────────────────────────────────
   function executeD3(nodeId, code) {
     try {
-      const container = d3.select(`#viz-${nodeId}`);
-      const width = 560;
-      const height = 360;
-      
-      // Clear previous content
-      container.selectAll("*").remove();
-      
-      // Execute the D3 code
-      eval(code);
+      new Function(`
+        const nodeId = "${nodeId}";
+        const container = d3.select("#node-canvas-${nodeId}");
+        const width = 560, height = 360;
+        ${code}
+      `)();
     } catch (e) {
-      const container = document.getElementById(`viz-${nodeId}`);
-      if (container) {
-        container.innerHTML = `<div class="viz-error">D3 Error: ${e.message}</div>`;
-      }
+      chronicle = chronicle.map(n => n.id === nodeId ? { ...n, error: e.message } : n);
     }
   }
 
-  // Annotation system (existing)
-  let editingAnnotation = null;
-  let annotationText = "";
-
-  function startAnnotation(node) {
-    editingAnnotation = node.id;
-    annotationText = node.annotation || "";
+  // ── Utilities ───────────────────────────────────────────────────────────
+  function generateId() {
+    return "n-" + Date.now() + "-" + Math.random().toString(36).substr(2, 8);
+  }
+  function formatTime(date) {
+    return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  function handleKeydown(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+  }
+  function toggleCollapse(nodeId) {
+    const s = new Set(collapsedNodes);
+    s.has(nodeId) ? s.delete(nodeId) : s.add(nodeId);
+    collapsedNodes = s;
+  }
+  function toggleSourcesExpanded(nodeId) {
+    chronicle = chronicle.map(n => n.id === nodeId ? { ...n, expanded: !n.expanded } : n);
   }
 
-  function saveAnnotation(node) {
-    chronicle = chronicle.map(n => 
-      n.id === node.id ? { ...n, annotation: annotationText } : n
-    );
-    editingAnnotation = null;
-    annotationText = "";
+  // ── Trash ───────────────────────────────────────────────────────────────
+  function moveToTrash(nodeId) {
+    const node = chronicle.find(n => n.id === nodeId);
+    if (node) {
+      trash = [...trash, { ...node, deletedAt: new Date() }];
+      chronicle = chronicle.filter(n => n.id !== nodeId);
+    }
   }
-
-  function cancelAnnotation() {
-    editingAnnotation = null;
-    annotationText = "";
-  }
-
-  // Trash system (existing)
-  let showTrash = false;
-
-  function deleteNode(node) {
-    trash = [node, ...trash];
-    chronicle = chronicle.filter(n => n.id !== node.id);
-  }
-
-  function restoreNode(node) {
-    chronicle = [...chronicle, node];
-    trash = trash.filter(n => n.id !== node.id);
-  }
-
-  function permanentlyDelete(node) {
-    trash = trash.filter(n => n.id !== node.id);
-  }
-
-  function emptyTrash() {
-    if (confirm(`Permanently delete ${trash.length} items?`)) {
-      trash = [];
+  function restoreFromTrash(nodeId) {
+    const node = trash.find(n => n.id === nodeId);
+    if (node) {
+      const { deletedAt, ...r } = node;
+      chronicle = [...chronicle, r].sort((a, b) => a.timestamp - b.timestamp);
+      trash = trash.filter(n => n.id !== nodeId);
     }
   }
 
-  function copyToClipboard(text) {
-    navigator.clipboard.writeText(text);
+  // ── Annotation ──────────────────────────────────────────────────────────
+  function startAnnotation(nodeId) {
+    editingAnnotation = nodeId;
+    annotationText = chronicle.find(n => n.id === nodeId)?.annotation || "";
   }
-
-  function downloadNode(node) {
-    const content = node.content || "";
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${node.type}_${node.id}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  function saveAnnotation() {
+    if (editingAnnotation) {
+      chronicle = chronicle.map(n =>
+        n.id === editingAnnotation ? { ...n, annotation: annotationText.trim() || null } : n
+      );
+      editingAnnotation = null;
+      annotationText = "";
+    }
   }
 </script>
 
-<div class="app"
-     on:drop={handleDocumentDrop}
-     on:dragover|preventDefault={() => isDragging = true}
-     on:dragleave={() => isDragging = false}
-     class:dragging={isDragging}>
-  
-  <!-- Drop Zone Overlay -->
-  {#if isDragging || isCreatingShard}
-    <div class="drop-overlay">
-      {#if isCreatingShard}
-        <div class="drop-message">🔨 Creating shard...</div>
-      {:else}
-        <div class="drop-message">📄 Drop document to create shard</div>
-      {/if}
-    </div>
-  {/if}
+<main class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <header class="sidebar-header">
+      <div class="logo">◇ Nodal Flow</div>
+      <div class="version">v0.2</div>
+    </header>
 
-  <!-- Toolbar -->
-  <div class="toolbar">
-    <div class="toolbar-left">
-      <div class="status">
-        <span class="status-label">Cortex:</span>
-        <span class="status-value">{cortexStatus}</span>
+    <div class="status-section">
+      <div class="status" class:online={cortexOnline}>
+        <span class="status-dot"></span>
+        <span>{cortexOnline ? "Cortex Online" : "Cortex Offline"}</span>
       </div>
-      
-      {#if !shardMounted}
-        <button class="shard-btn" on:click={mountShard}>
-          📁 Mount Shard
-        </button>
-      {:else}
-        <button class="shard-btn mounted" on:click={unmountShard}>
-          ⏏️ {shardInfo?.title || 'Shard'}
-        </button>
-        <button class="stats-btn" on:click={toggleStats}>
-          📊 Stats
-        </button>
+      {#if availableModels.length > 0}
+        <select class="model-select" bind:value={selectedModel}>
+          {#each availableModels as m}<option value={m}>{m}</option>{/each}
+        </select>
       {/if}
     </div>
 
-    <div class="toolbar-right">
-      <button class="trash-btn" on:click={() => showTrash = !showTrash}>
-        🗑️ {trash.length > 0 ? `(${trash.length})` : ''}
-      </button>
-    </div>
-  </div>
-
-  <!-- Main Chronicle -->
-  <div class="chronicle" bind:this={chronicleContainer} on:scroll={handleScroll}>
-    {#each chronicle as node, index (node.id)}
-      <div class="node {node.type}" class:collapsed={isNodeCollapsed(node, index)}>
-        <div class="node-header">
-          <div class="node-meta">
-            <span class="node-type">{node.type}</span>
-            {#if node.title}
-              <span class="node-title">{node.title}</span>
-            {/if}
-            {#if node.derivesFrom}
-              <span class="derives-from">← {node.derivesFrom}</span>
-            {/if}
-            {#if node.tier !== undefined}
-              <span class="tier">T{node.tier}</span>
-            {/if}
+    <!-- Vault -->
+    <div class="shard-section">
+      <div class="section-label">The Vault</div>
+      {#if shardMounted && shardInfo}
+        <div class="shard-info">
+          <div class="shard-title">{shardInfo.title}</div>
+          <div class="shard-meta">
+            <span class="namespace">{shardInfo.namespace}</span>
+            <span class="trust-badge {trustClass(shardInfo.trust_level)}">{trustLabel(shardInfo.trust_level)}</span>
           </div>
-          <div class="node-actions">
-            <span class="timestamp">{formatTimestamp(node.timestamp)}</span>
-            {#if isNodeCollapsed(node, index)}
-              <button class="icon-btn" on:click={() => expandNode(node)}>▼</button>
-            {:else}
-              <button class="icon-btn" on:click={() => collapseNode(node)}>▲</button>
-            {/if}
-            {#if node.type !== "intent"}
-              <button class="icon-btn" on:click={() => copyToClipboard(node.content)}>📋</button>
-              <button class="icon-btn" on:click={() => downloadNode(node)}>⬇️</button>
-              <button class="icon-btn delete" on:click={() => deleteNode(node)}>×</button>
-            {/if}
+          <div class="shard-counts">{shardInfo.entity_count} entities · {shardInfo.claim_count} claims</div>
+          <div class="shard-actions">
+            <button class="shard-btn" on:click={browseAllClaims}>Browse</button>
+            <button class="shard-btn" on:click={() => showStats = true}>Stats</button>
+            <button class="shard-btn danger" on:click={unmountShard}>Unmount</button>
           </div>
         </div>
+      {:else}
+        <button class="mount-btn" on:click={mountShard}>+ Mount Knowledge Shard</button>
+        {#if shardError}<div class="shard-error">{shardError}</div>{/if}
+      {/if}
+    </div>
 
-        {#if !isNodeCollapsed(node, index)}
-          <div class="node-content">
-            {#if node.type === "intent"}
-              <div class="intent-text">{node.content}</div>
-            
-            {:else if node.type === "system"}
-              <div class="system-text">{node.content}</div>
-            
-            {:else if node.type === "citation"}
-              <div class="citation-block" on:click={() => verifyClaim(node.claim)}>
-                <div class="citation-claim">{node.content}</div>
-                {#if node.evidence}
-                  <div class="citation-evidence">"{node.evidence}"</div>
-                {/if}
-                <div class="citation-meta">
-                  <span class="source-hash">{node.source_hash.substring(0, 8)}...</span>
-                  <span class="byte-range">{node.byte_start}—{node.byte_end}</span>
-                  <span class="verify-hint">🔍 Click to verify</span>
-                </div>
-              </div>
-            
-            {:else if node.type === "chat"}
-              <div class="chat-text">{node.content}</div>
-            
-            {:else if node.type === "viz"}
-              <div id="viz-{node.id}" class="viz-container"></div>
-            
-            {:else if node.type === "code"}
-              <pre class="code-block"><code>{node.content}</code></pre>
-            
-            {:else if node.type === "write"}
-              <div class="write-block">{node.content}</div>
-            
-            {:else if node.type === "audio"}
-              <div class="placeholder-block">
-                <span class="placeholder-icon">🎵</span>
-                <p>{node.content}</p>
-                <p class="coming-soon">(Audio generation in v0.2)</p>
-              </div>
-            
-            {:else if node.type === "image"}
-              <div class="placeholder-block">
-                <span class="placeholder-icon">🖼️</span>
-                <p>{node.content}</p>
-                <p class="coming-soon">(Image generation in v0.2)</p>
-              </div>
-            
-            {:else if node.type === "error"}
-              <div class="error-block">{node.content}</div>
-            {/if}
+    {#if shardMounted}
+      <div class="filter-section">
+        <div class="section-label">Confidence</div>
+        <div class="tier-buttons">
+          <button class="tier-btn" class:active={maxTier === 0} on:click={() => maxTier = maxTier === 0 ? null : 0}>T0</button>
+          <button class="tier-btn" class:active={maxTier === 1} on:click={() => maxTier = maxTier === 1 ? null : 1}>T0–1</button>
+          <button class="tier-btn" class:active={maxTier === null} on:click={() => maxTier = null}>All</button>
+        </div>
+      </div>
+    {/if}
 
-            <!-- Annotation -->
-            {#if node.annotation && editingAnnotation !== node.id}
-              <div class="annotation" on:click={() => startAnnotation(node)}>
-                <span class="annotation-icon">📝</span>
-                <span>{node.annotation}</span>
-              </div>
-            {/if}
+    <!-- Input -->
+    <div class="input-section">
+      <div class="input-label">{shardMounted ? "Query the Vault" : "Intent"}</div>
+      <textarea
+        bind:value={input}
+        on:keydown={handleKeydown}
+        placeholder={shardMounted ? "Ask anything — the shard proves it" : "What do you want to create?"}
+        disabled={isProcessing}
+        rows="5"
+      ></textarea>
+      <div class="input-actions">
+        <button class="submit-btn" on:click={handleSubmit} disabled={isProcessing || !input.trim()}>
+          {isProcessing ? "Querying..." : shardMounted ? "Query" : "Execute"}
+        </button>
+        <button class="submit-btn secondary" on:click={() => showSettings = !showSettings} title="Settings">⚙</button>
+      </div>
+    </div>
 
-            {#if editingAnnotation === node.id}
-              <div class="annotation-editor">
-                <textarea bind:value={annotationText} rows="3" placeholder="Add your note..."></textarea>
-                <div class="annotation-actions">
-                  <button class="ann-btn save" on:click={() => saveAnnotation(node)}>Save</button>
-                  <button class="ann-btn cancel" on:click={cancelAnnotation}>Cancel</button>
-                </div>
-              </div>
-            {/if}
+    <div class="sidebar-footer">
+      <div class="stats">
+        <span>{chronicle.length} nodes</span>
+        <button class="icon-btn" class:has-items={trash.length > 0} on:click={() => showTrash = !showTrash}>
+          🗑 {trash.length}
+        </button>
+      </div>
+    </div>
+  </aside>
 
-            {#if !node.annotation && editingAnnotation !== node.id && node.type !== "intent" && node.type !== "error"}
-              <button class="add-annotation-btn" on:click={() => startAnnotation(node)}>
-                + Add note
-              </button>
-            {/if}
+  <!-- CHRONICLE -->
+  <section class="chronicle" bind:this={chronicleContainer} on:scroll={handleScroll}>
+    {#if chronicle.length === 0}
+      <div class="empty-state">
+        <div class="empty-logo">◇</div>
+        <h2>The Chronicle</h2>
+        <p>Everything accumulates. Nothing is silently replaced.</p>
+        {#if !shardMounted}
+          <p class="mount-hint">← Mount a knowledge shard to enable verified retrieval</p>
+          <div class="suggestions">
+            <button on:click={() => { input = "Visualize a sine wave"; handleSubmit(); }}>Visualize a sine wave</button>
+            <button on:click={() => { input = "Write a haiku about sovereignty"; handleSubmit(); }}>Write a haiku</button>
+          </div>
+        {:else}
+          <div class="suggestions">
+            <button on:click={() => { input = "What treats severe bleeding?"; handleSubmit(); }}>What treats severe bleeding?</button>
+            <button on:click={() => { input = "What is contraindicated with elevation?"; handleSubmit(); }}>Contraindications?</button>
+            <button on:click={browseAllClaims}>Browse all claims</button>
           </div>
         {/if}
       </div>
-    {/each}
+    {:else}
+      {#each chronicle as node (node.id)}
+        {@const collapsed = collapsedNodes.has(node.id)}
+        <div class="chronicle-node" class:has-verified={node.verified} id={node.id}>
 
-    {#if isProcessing}
-      <div class="processing-indicator">
-        <div class="processing-dot"></div>
-        <div class="processing-dot"></div>
-        <div class="processing-dot"></div>
-      </div>
+          <div class="node-gutter">
+            <span class="node-time">{formatTime(node.timestamp)}</span>
+            {#if node.type !== "intent" && node.type !== "system"}
+              <div class="node-actions">
+                <button class="action-btn" on:click={() => toggleCollapse(node.id)}>{collapsed ? "▶" : "▼"}</button>
+                <button class="action-btn" on:click={() => startAnnotation(node.id)}>✎</button>
+                <button class="action-btn del" on:click={() => moveToTrash(node.id)}>✕</button>
+              </div>
+            {/if}
+          </div>
+
+          <div class="node-content">
+            {#if collapsed && node.type !== "intent" && node.type !== "system"}
+              <div class="collapsed-row" on:click={() => toggleCollapse(node.id)}>
+                <span class="badge {node.type}">{node.type}</span>
+                <span class="collapsed-preview">{node.title || node.content?.slice(0, 60) || "…"}</span>
+              </div>
+
+            {:else if node.type === "intent"}
+              <div class="intent-label">Intent</div>
+              <div class="intent-text">{node.content}</div>
+
+            {:else if node.type === "system"}
+              <div class="system-row">ℹ {node.content}</div>
+
+            {:else if node.type === "error"}
+              <div class="error-row">{node.content}</div>
+
+            {:else if node.type === "chat"}
+              <div class="node-header">
+                <span class="badge">response</span>
+                {#if node.verified}<span class="lock-icon" title="Grounded in verified shard">🔒</span>{/if}
+              </div>
+              <div class="chat-text">{node.content}</div>
+
+            {:else if node.type === "citation"}
+              <div class="node-header">
+                <span class="badge citation">citation</span>
+                <span class="claim-label">{node.subject} → {node.predicate} → {node.object}</span>
+              </div>
+              <div class="citation-block" on:click={() => openSourceViewer(node)}>
+                <blockquote>"{node.evidence || `${node.subject} ${node.predicate} ${node.object}`}"</blockquote>
+                <div class="citation-meta">
+                  <span>bytes {node.byte_start}–{node.byte_end}</span>
+                  <span class="verify-link">🔒 Verify source →</span>
+                </div>
+              </div>
+
+            {:else if node.type === "sources"}
+              <div class="sources-row">
+                <span class="badge sources">sources</span>
+                <span>{node.title}</span>
+                <button class="expand-btn" on:click={() => toggleSourcesExpanded(node.id)}>
+                  {node.expanded ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {#if node.expanded}
+                <div class="sources-list">
+                  {#each node.claims as claim}
+                    <div class="source-item" on:click={() => openSourceViewer(claim)}>
+                      <span class="tier-pill">T{claim.tier}</span>
+                      <span class="src-subject">{claim.subject}</span>
+                      <span class="src-pred">{claim.predicate}</span>
+                      <span class="src-obj">{claim.object}</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+            {:else if node.type === "browse"}
+              <div class="node-header">
+                <span class="badge browse">browse</span>
+                <span class="node-title">{node.title}</span>
+                <span class="claim-label">{node.claims?.length || 0} claims</span>
+              </div>
+              <div class="claims-grid">
+                {#each (node.claims || []) as claim}
+                  <div class="claim-card" on:click={() => openSourceViewer(claim)}>
+                    <div class="triple">
+                      <span class="subj">{claim.subject}</span>
+                      <span class="pred">{claim.predicate}</span>
+                      <span class="obj">{claim.object}</span>
+                    </div>
+                    {#if claim.evidence}
+                      <div class="claim-ev">"{claim.evidence.slice(0, 80)}{claim.evidence.length > 80 ? '…' : ''}"</div>
+                    {/if}
+                    <div class="claim-meta">
+                      <span class="tier-pill">T{claim.tier}</span>
+                      {#if claim.byte_start >= 0}<span class="has-src">🔒 {claim.byte_start}–{claim.byte_end}</span>{/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+
+            {:else if node.type === "viz"}
+              <div class="node-header">
+                <span class="badge viz">viz</span>
+                {#if node.title}<span class="node-title">{node.title}</span>{/if}
+              </div>
+              {#if node.error}
+                <div class="viz-wrap"><span class="viz-err">D3 error: {node.error}</span></div>
+              {:else}
+                <div class="viz-wrap" id="node-canvas-{node.id}"></div>
+              {/if}
+
+            {:else if node.type === "code"}
+              <div class="node-header">
+                <span class="badge code">code</span>
+                {#if node.title}<span class="node-title">{node.title}</span>{/if}
+                {#if node.lang}<span class="lang-tag">{node.lang}</span>{/if}
+              </div>
+              <pre class="code-block">{node.content}</pre>
+
+            {:else if node.type === "write"}
+              <div class="node-header">
+                <span class="badge write">write</span>
+                {#if node.title}<span class="node-title">{node.title}</span>{/if}
+              </div>
+              <div class="write-block">{node.content}</div>
+
+            {:else}
+              <div class="node-header">
+                <span class="badge">{node.type}</span>
+                {#if node.title}<span class="node-title">{node.title}</span>{/if}
+              </div>
+              <div class="chat-text">{node.content}</div>
+            {/if}
+
+            <!-- Annotation -->
+            {#if editingAnnotation === node.id}
+              <div class="ann-editor">
+                <textarea bind:value={annotationText} rows="3" placeholder="Add a note…"></textarea>
+                <div class="ann-actions">
+                  <button class="ann-btn save" on:click={saveAnnotation}>Save</button>
+                  <button class="ann-btn cancel" on:click={() => editingAnnotation = null}>Cancel</button>
+                </div>
+              </div>
+            {:else if node.annotation}
+              <div class="annotation" on:click={() => startAnnotation(node.id)}>✎ {node.annotation}</div>
+            {/if}
+          </div>
+        </div>
+      {/each}
+
+      {#if isProcessing}
+        <div class="chronicle-node">
+          <div class="node-gutter"><span class="node-time">--:--</span></div>
+          <div class="node-content">
+            <div class="processing">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
+          </div>
+        </div>
+      {/if}
     {/if}
-  </div>
 
-  <!-- New nodes indicator -->
-  {#if showNewNodesIndicator}
-    <button class="new-nodes-indicator" on:click={scrollToBottom}>
-      ↓ New nodes below
-    </button>
+    {#if showNewNodesIndicator}
+      <button class="scroll-indicator" on:click={scrollToBottom}>↓ New nodes</button>
+    {/if}
+  </section>
+
+  <!-- SOURCE VERIFICATION PANEL -->
+  {#if showSourceViewer && selectedSource}
+    <aside class="panel source-panel">
+      <header class="panel-header">
+        <h3>🔒 Source Verification</h3>
+        <button class="close-btn" on:click={() => showSourceViewer = false}>×</button>
+      </header>
+      <div class="panel-body">
+        <div class="verify-status" class:ok={sourceVerified === true} class:fail={sourceVerified === false}>
+          {#if sourceVerified === true}✓ VERIFIED — Evidence matches source bytes
+          {:else if sourceVerified === false}✗ MISMATCH — Evidence does not match source
+          {:else}○ Loading…{/if}
+        </div>
+
+        <div class="meta-rows">
+          <div class="meta-row"><span class="ml">Source Hash</span><code class="mv">{selectedSource.source_hash?.slice(0,16) || 'N/A'}…</code></div>
+          <div class="meta-row"><span class="ml">Byte Range</span><code class="mv">{selectedSource.byte_start} – {selectedSource.byte_end}</code></div>
+          {#if selectedSource.subject}
+            <div class="meta-row"><span class="ml">Claim</span><code class="mv">{selectedSource.subject} {selectedSource.predicate} {selectedSource.object}</code></div>
+          {/if}
+        </div>
+
+        <div class="compare-block">
+          <div class="compare-label">Claim Evidence</div>
+          <blockquote class="evidence-q">{selectedSource.evidence || "No evidence text"}</blockquote>
+        </div>
+        <div class="compare-block">
+          <div class="compare-label">Source bytes {selectedSource.byte_start}–{selectedSource.byte_end}</div>
+          <blockquote class="source-q" class:match={sourceVerified === true}>{sourceContent || "Loading…"}</blockquote>
+        </div>
+
+        {#if sourceVerified === true}
+          <div class="verify-confirm">This claim is backed by verified, byte-addressable evidence.</div>
+        {/if}
+      </div>
+    </aside>
   {/if}
 
-  <!-- Input -->
-  <div class="input-container">
-    <form on:submit|preventDefault={handleSubmit}>
-      <input
-        type="text"
-        bind:value={input}
-        placeholder={shardMounted ? "Query the shard..." : "Talk to the cortex..."}
-        disabled={isProcessing}
-      />
-      <button type="submit" disabled={!input.trim() || isProcessing}>
-        {isProcessing ? "●●●" : "→"}
-      </button>
-    </form>
-  </div>
-
-  <!-- Trash Panel -->
-  {#if showTrash}
-    <div class="trash-panel">
-      <div class="trash-header">
-        <h3>Trash</h3>
-        <button class="close-trash" on:click={() => showTrash = false}>×</button>
+  <!-- STATS PANEL -->
+  {#if showStats && shardStats}
+    <aside class="panel stats-panel">
+      <header class="panel-header">
+        <h3>📊 Shard Statistics</h3>
+        <button class="close-btn" on:click={() => showStats = false}>×</button>
+      </header>
+      <div class="panel-body">
+        <div class="stat-grid">
+          <div class="stat-card"><span class="sv">{shardStats.entities}</span><span class="sl">Entities</span></div>
+          <div class="stat-card"><span class="sv">{shardStats.claims}</span><span class="sl">Claims</span></div>
+          <div class="stat-card"><span class="sv">{shardStats.provenance_links}</span><span class="sl">Provenance</span></div>
+          <div class="stat-card"><span class="sv">{shardStats.evidence_spans}</span><span class="sl">Spans</span></div>
+        </div>
+        <div class="tier-section">
+          <div class="tier-head">Claims by Tier</div>
+          {#each [{label:"Tier 0 (High)",key:"tier_0",c:"t0"},{label:"Tier 1 (Med)",key:"tier_1",c:"t1"},{label:"Tier 2 (Review)",key:"tier_2",c:"t2"}] as t}
+            <div class="tier-row">
+              <span class="tl">{t.label}</span>
+              <div class="tbar"><div class="tfill {t.c}" style="width:{((shardStats.claims_by_tier?.[t.key]||0)/(shardStats.claims||1)*100)}%"></div></div>
+              <span class="tc">{shardStats.claims_by_tier?.[t.key]||0}</span>
+            </div>
+          {/each}
+        </div>
+        <div class="pred-count"><span class="sv" style="font-size:1.1rem">{shardStats.unique_predicates}</span> unique predicates</div>
       </div>
+    </aside>
+  {/if}
 
+  <!-- TRASH PANEL -->
+  {#if showTrash}
+    <aside class="panel trash-panel">
+      <header class="panel-header">
+        <h3>🗑 Trash</h3>
+        <button class="close-btn" on:click={() => showTrash = false}>×</button>
+      </header>
       {#if trash.length === 0}
-        <div class="trash-empty">Trash is empty</div>
+        <div class="panel-empty">No deleted nodes</div>
       {:else}
         <div class="trash-list">
           {#each trash as node (node.id)}
             <div class="trash-item">
-              <div class="trash-item-info">
+              <div>
                 <span class="trash-type">{node.type}</span>
-                {#if node.title}
-                  <span class="trash-title">{node.title}</span>
-                {/if}
+                <span class="trash-preview">{node.title || node.content?.slice(0,40) || "…"}</span>
               </div>
-              <div class="trash-item-actions">
-                <button class="restore-btn" on:click={() => restoreNode(node)}>Restore</button>
-                <button class="perm-delete-btn" on:click={() => permanentlyDelete(node)}>Delete</button>
-              </div>
+              <button class="restore-btn" on:click={() => restoreFromTrash(node.id)}>Restore</button>
             </div>
           {/each}
         </div>
-        <button class="empty-trash-btn" on:click={emptyTrash}>Empty Trash</button>
+        <button class="empty-btn" on:click={() => trash = []}>Empty Trash</button>
       {/if}
-    </div>
+    </aside>
   {/if}
 
-  <!-- Source Verification Panel -->
-  {#if showSourceViewer}
-    <div class="source-panel">
-      <div class="source-header">
-        <h3>Source Verification</h3>
-        <button class="close-source" on:click={closeSourceViewer}>×</button>
-      </div>
-
-      {#if selectedSource}
-        <div class="source-body">
-          <div class="source-claim">
-            <h4>Claim</h4>
-            <p>{selectedSource.content}</p>
-          </div>
-
-          <div class="source-metadata">
-            <div class="meta-row">
-              <span class="meta-label">Source:</span>
-              <span class="meta-value">{selectedSource.source_hash}</span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">Bytes:</span>
-              <span class="meta-value">{selectedSource.byte_start} — {selectedSource.byte_end}</span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">Tier:</span>
-              <span class="meta-value">{selectedSource.tier}</span>
-            </div>
-          </div>
-
-          <div class="source-content">
-            <h4>Source Content</h4>
-            <pre>{sourceContent}</pre>
-          </div>
-
-          {#if sourceVerified !== null}
-            <div class="verification-result {sourceVerified ? 'verified' : 'failed'}">
-              {#if sourceVerified}
-                <span class="verify-icon">✓</span>
-                <span>Source verified - bytes match</span>
-              {:else}
-                <span class="verify-icon">✗</span>
-                <span>Verification failed - bytes do not match</span>
-              {/if}
-            </div>
-          {/if}
+  <!-- SETTINGS PANEL -->
+  {#if showSettings}
+    <aside class="panel settings-panel">
+      <header class="panel-header">
+        <h3>⚙ Settings</h3>
+        <button class="close-btn" on:click={() => showSettings = false}>×</button>
+      </header>
+      <div class="panel-body">
+        <div class="setting-group">
+          <label>Model</label>
+          <select bind:value={selectedModel}>
+            {#each availableModels as m}<option value={m}>{m}</option>{/each}
+          </select>
         </div>
-      {/if}
-    </div>
+        <div class="setting-group">
+          <label>Max Tier</label>
+          <select bind:value={maxTier}>
+            <option value={null}>All tiers</option>
+            <option value={0}>Tier 0 only (highest confidence)</option>
+            <option value={1}>Tier 0–1</option>
+            <option value={2}>All tiers (0–2)</option>
+          </select>
+        </div>
+        <div class="setting-info">
+          <p><strong>Tier 0:</strong> Rule-based · confidence 1.0</p>
+          <p><strong>Tier 1:</strong> Pattern-matched · high confidence</p>
+          <p><strong>Tier 2:</strong> LLM-extracted · review recommended</p>
+        </div>
+      </div>
+    </aside>
   {/if}
-
-  <!-- Stats Panel -->
-  {#if showStats && shardStats}
-    <div class="stats-panel">
-      <div class="stats-header">
-        <h3>Shard Statistics</h3>
-        <button class="close-stats" on:click={() => showStats = false}>×</button>
-      </div>
-
-      <div class="stats-body">
-        <div class="stat-group">
-          <h4>Overview</h4>
-          <div class="stat-row">
-            <span class="stat-label">Entities:</span>
-            <span class="stat-value">{shardStats.entities}</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Claims:</span>
-            <span class="stat-value">{shardStats.claims}</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Evidence Spans:</span>
-            <span class="stat-value">{shardStats.evidence_spans}</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Unique Predicates:</span>
-            <span class="stat-value">{shardStats.unique_predicates}</span>
-          </div>
-        </div>
-
-        <div class="stat-group">
-          <h4>Claims by Tier</h4>
-          <div class="stat-row">
-            <span class="stat-label">Tier 0 (High):</span>
-            <span class="stat-value">{shardStats.claims_by_tier.tier_0}</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Tier 1 (Medium):</span>
-            <span class="stat-value">{shardStats.claims_by_tier.tier_1}</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Tier 2 (LLM):</span>
-            <span class="stat-value">{shardStats.claims_by_tier.tier_2}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  {/if}
-</div>
+</main>
 
 <style>
-  * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-  }
-
-  :root {
-    --bg: #000;
-    --surface: #0a0a0a;
-    --border: #1a1a1a;
-    --text: #ccc;
-    --text-dim: #666;
-    --accent: #10b981;
-    --intent: #3b82f6;
-    --error: #ef4444;
-    --citation: #a78bfa;
-    --system: #64748b;
-  }
-
-  .app {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    position: relative;
-  }
-
-  .app.dragging {
-    outline: 3px dashed var(--accent);
-    outline-offset: -3px;
-  }
-
-  /* Drop Zone Overlay */
-  .drop-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.85);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    pointer-events: none;
-  }
-
-  .drop-message {
-    font-size: 1.5rem;
-    color: var(--accent);
-    padding: 40px 60px;
-    border: 2px dashed var(--accent);
-    border-radius: 12px;
-    background: var(--surface);
-  }
-
-  /* Toolbar */
-  .toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-  }
-
-  .toolbar-left, .toolbar-right {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-  }
-
-  .status {
-    display: flex;
-    gap: 8px;
-    font-size: 0.8rem;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .status-label {
-    color: var(--text-dim);
-  }
-
-  .status-value {
-    color: var(--accent);
-  }
-
-  .shard-btn, .stats-btn, .trash-btn {
-    padding: 6px 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .shard-btn:hover, .stats-btn:hover, .trash-btn:hover {
-    background: #1a1a1a;
-    border-color: #333;
-  }
-
-  .shard-btn.mounted {
-    background: rgba(16, 185, 129, 0.1);
-    border-color: rgba(16, 185, 129, 0.3);
-    color: var(--accent);
-  }
-
-  /* Chronicle */
-  .chronicle {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .node {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    transition: opacity 0.2s;
-  }
-
-  .node.collapsed {
-    opacity: 0.5;
-  }
-
-  .node-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.02);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .node-meta {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-
-  .node-type {
-    font-size: 0.65rem;
-    font-family: 'JetBrains Mono', monospace;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    letter-spacing: 0.5px;
-  }
-
-  .node.intent .node-type { color: var(--intent); }
-  .node.chat .node-type { color: var(--accent); }
-  .node.citation .node-type { color: var(--citation); }
-  .node.system .node-type { color: var(--system); }
-  .node.error .node-type { color: var(--error); }
-
-  .node-title {
-    font-size: 0.85rem;
-    color: var(--text);
-  }
-
-  .derives-from {
-    font-size: 0.7rem;
-    color: var(--text-dim);
-    font-style: italic;
-  }
-
-  .tier {
-    font-size: 0.65rem;
-    font-family: 'JetBrains Mono', monospace;
-    background: rgba(167, 139, 250, 0.2);
-    color: var(--citation);
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-
-  .node-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .timestamp {
-    font-size: 0.7rem;
-    color: var(--text-dim);
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .icon-btn {
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    cursor: pointer;
-    padding: 4px;
-    font-size: 0.9rem;
-    transition: color 0.2s;
-  }
-
-  .icon-btn:hover {
-    color: var(--text);
-  }
-
-  .icon-btn.delete:hover {
-    color: var(--error);
-  }
-
-  .node-content {
-    padding: 16px;
-  }
-
-  /* Intent */
-  .intent-text {
-    color: var(--intent);
-    font-size: 0.95rem;
-  }
-
-  /* System */
-  .system-text {
-    color: var(--system);
-    font-size: 0.9rem;
-  }
-
-  /* Citation */
-  .citation-block {
-    cursor: pointer;
-    padding: 14px;
-    background: rgba(167, 139, 250, 0.05);
-    border: 1px solid rgba(167, 139, 250, 0.2);
-    border-radius: 6px;
-    transition: all 0.2s;
-  }
-
-  .citation-block:hover {
-    background: rgba(167, 139, 250, 0.1);
-    border-color: rgba(167, 139, 250, 0.4);
-  }
-
-  .citation-claim {
-    font-size: 0.95rem;
-    color: var(--citation);
-    margin-bottom: 8px;
-  }
-
-  .citation-evidence {
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    font-style: italic;
-    margin-bottom: 10px;
-  }
-
-  .citation-meta {
-    display: flex;
-    gap: 12px;
-    font-size: 0.7rem;
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--text-dim);
-  }
-
-  .verify-hint {
-    color: var(--citation);
-  }
-
-  /* Chat */
-  .chat-text {
-    color: var(--text);
-    line-height: 1.6;
-    font-size: 0.95rem;
-  }
-
-  /* Viz container */
-  .viz-container {
-    background: #0a0a0a;
-    border: 1px solid #1a1a1a;
-    border-radius: 8px;
-    padding: 20px;
-    min-height: 200px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .viz-error {
-    color: #ef4444;
-    font-size: 0.85rem;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  :global(.viz-container svg) {
-    max-width: 100%;
-    max-height: 400px;
-  }
-
-  /* Code block */
-  .code-block {
-    background: #0a0a0a;
-    border: 1px solid #1a1a1a;
-    border-radius: 8px;
-    padding: 16px;
-    overflow-x: auto;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
-    line-height: 1.6;
-    color: #10b981;
-  }
-
-  /* Write block */
-  .write-block {
-    background: #0a0a0a;
-    border: 1px solid #1a1a1a;
-    border-radius: 8px;
-    padding: 20px;
-    font-size: 0.95rem;
-    line-height: 1.8;
-    color: #ccc;
-    white-space: pre-wrap;
-  }
-
-  /* Placeholder blocks */
-  .placeholder-block {
-    background: #0a0a0a;
-    border: 1px dashed #222;
-    border-radius: 8px;
-    padding: 30px;
-    text-align: center;
-    color: #555;
-  }
-
-  .placeholder-icon {
-    font-size: 2rem;
-    display: block;
-    margin-bottom: 12px;
-    opacity: 0.5;
-  }
-
-  .coming-soon {
-    font-size: 0.7rem;
-    font-family: 'JetBrains Mono', monospace;
-    color: #333;
-  }
-
-  /* Error block */
-  .error-block {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 8px;
-    padding: 16px;
-    color: #ef4444;
-    font-size: 0.85rem;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  /* Annotation */
-  .annotation {
-    margin-top: 12px;
-    padding: 10px 14px;
-    background: rgba(167, 139, 250, 0.05);
-    border-left: 2px solid rgba(167, 139, 250, 0.3);
-    border-radius: 0 4px 4px 0;
-    font-size: 0.85rem;
-    color: #a78bfa;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-
-  .annotation:hover {
-    background: rgba(167, 139, 250, 0.1);
-  }
-
-  .annotation-editor {
-    margin-top: 12px;
-    padding: 12px;
-    background: #0a0a0a;
-    border: 1px solid #222;
-    border-radius: 6px;
-  }
-
-  .annotation-editor textarea {
-    width: 100%;
-    background: #111;
-    border: 1px solid #333;
-    padding: 10px;
-    font-size: 0.85rem;
-    color: var(--text);
-    font-family: inherit;
-    margin-bottom: 8px;
-    border-radius: 4px;
-  }
-
-  .annotation-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .ann-btn {
-    padding: 6px 12px;
-    border: none;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    cursor: pointer;
-  }
-
-  .ann-btn.save {
-    background: #3b82f6;
-    color: white;
-  }
-
-  .ann-btn.cancel {
-    background: #222;
-    color: #888;
-  }
-
-  .add-annotation-btn {
-    margin-top: 8px;
-    padding: 4px 10px;
-    background: transparent;
-    border: 1px dashed #333;
-    color: #666;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    cursor: pointer;
-  }
-
-  .add-annotation-btn:hover {
-    border-color: #555;
-    color: #888;
-  }
-
-  /* Processing indicator */
-  .processing-indicator {
-    display: flex;
-    gap: 6px;
-    padding: 12px 0;
-  }
-
-  .processing-dot {
-    width: 8px;
-    height: 8px;
-    background: #333;
-    border-radius: 50%;
-    animation: pulse 1.4s infinite ease-in-out;
-  }
-
-  .processing-dot:nth-child(2) {
-    animation-delay: 0.2s;
-  }
-
-  .processing-dot:nth-child(3) {
-    animation-delay: 0.4s;
-  }
-
-  @keyframes pulse {
-    0%, 80%, 100% {
-      opacity: 0.3;
-      transform: scale(0.8);
-    }
-    40% {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-
-  /* New nodes indicator */
-  .new-nodes-indicator {
-    position: absolute;
-    bottom: 80px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 8px 16px;
-    background: var(--accent);
-    color: #000;
-    border: none;
-    border-radius: 20px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    z-index: 100;
-  }
-
-  /* Input */
-  .input-container {
-    padding: 20px;
-    border-top: 1px solid var(--border);
-    background: var(--surface);
-  }
-
-  .input-container form {
-    display: flex;
-    gap: 12px;
-  }
-
-  .input-container input {
-    flex: 1;
-    padding: 12px 16px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-family: inherit;
-  }
-
-  .input-container input:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .input-container button {
-    padding: 12px 24px;
-    background: var(--accent);
-    color: #000;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: opacity 0.2s;
-  }
-
-  .input-container button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .input-container button:not(:disabled):hover {
-    opacity: 0.9;
-  }
-
-  /* Trash Panel */
-  .trash-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 320px;
-    height: 100%;
-    background: #0a0a0a;
-    border-left: 1px solid #1a1a1a;
-    display: flex;
-    flex-direction: column;
-    z-index: 200;
-  }
-
-  .trash-header {
-    padding: 20px;
-    border-bottom: 1px solid #1a1a1a;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .trash-header h3 {
-    font-size: 1rem;
-    font-weight: 500;
-  }
-
-  .close-trash {
-    background: none;
-    border: none;
-    color: #555;
-    font-size: 1.25rem;
-    cursor: pointer;
-  }
-
-  .close-trash:hover {
-    color: #fff;
-  }
-
-  .trash-empty {
-    padding: 40px;
-    text-align: center;
-    color: #444;
-    font-size: 0.9rem;
-  }
-
-  .trash-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 12px;
-  }
-
-  .trash-item {
-    padding: 12px;
-    background: #111;
-    border-radius: 6px;
-    margin-bottom: 8px;
-  }
-
-  .trash-item-info {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .trash-type {
-    font-size: 0.65rem;
-    font-family: 'JetBrains Mono', monospace;
-    color: #555;
-    text-transform: uppercase;
-  }
-
-  .trash-title {
-    font-size: 0.8rem;
-    color: #888;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .trash-item-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .restore-btn, .perm-delete-btn {
-    padding: 4px 10px;
-    border: none;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    cursor: pointer;
-  }
-
-  .restore-btn {
-    background: #222;
-    color: #10b981;
-  }
-
-  .restore-btn:hover {
-    background: #1a3a2a;
-  }
-
-  .perm-delete-btn {
-    background: #222;
-    color: #ef4444;
-  }
-
-  .perm-delete-btn:hover {
-    background: #3a1a1a;
-  }
-
-  .empty-trash-btn {
-    margin: 12px;
-    padding: 10px;
-    background: #1a1a1a;
-    border: 1px solid #333;
-    color: #ef4444;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-
-  .empty-trash-btn:hover {
-    background: #2a1a1a;
-  }
-
-  /* Source Verification Panel */
-  .source-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 480px;
-    height: 100%;
-    background: #0a0a0a;
-    border-left: 1px solid #1a1a1a;
-    display: flex;
-    flex-direction: column;
-    z-index: 250;
-  }
-
-  .source-header {
-    padding: 20px;
-    border-bottom: 1px solid #1a1a1a;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .source-header h3 {
-    font-size: 1rem;
-    font-weight: 500;
-  }
-
-  .close-source {
-    background: none;
-    border: none;
-    color: #555;
-    font-size: 1.25rem;
-    cursor: pointer;
-  }
-
-  .close-source:hover {
-    color: #fff;
-  }
-
-  .source-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  .source-claim h4, .source-metadata h4, .source-content h4 {
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    margin-bottom: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .source-claim p {
-    color: var(--citation);
-    font-size: 0.95rem;
-  }
-
-  .source-metadata {
-    background: #111;
-    border: 1px solid #1a1a1a;
-    border-radius: 6px;
-    padding: 12px;
-  }
-
-  .meta-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 0;
-    font-size: 0.8rem;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .meta-label {
-    color: var(--text-dim);
-  }
-
-  .meta-value {
-    color: var(--text);
-  }
-
-  .source-content pre {
-    background: #111;
-    border: 1px solid #1a1a1a;
-    border-radius: 6px;
-    padding: 14px;
-    font-size: 0.85rem;
-    line-height: 1.6;
-    color: var(--text);
-    font-family: 'JetBrains Mono', monospace;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-  }
-
-  .verification-result {
-    padding: 14px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .verification-result.verified {
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.3);
-    color: var(--accent);
-  }
-
-  .verification-result.failed {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    color: var(--error);
-  }
-
-  .verify-icon {
-    font-size: 1.2rem;
-    font-weight: bold;
-  }
-
-  /* Stats Panel */
-  .stats-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 320px;
-    height: 100%;
-    background: #0a0a0a;
-    border-left: 1px solid #1a1a1a;
-    display: flex;
-    flex-direction: column;
-    z-index: 200;
-  }
-
-  .stats-header {
-    padding: 20px;
-    border-bottom: 1px solid #1a1a1a;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .stats-header h3 {
-    font-size: 1rem;
-    font-weight: 500;
-  }
-
-  .close-stats {
-    background: none;
-    border: none;
-    color: #555;
-    font-size: 1.25rem;
-    cursor: pointer;
-  }
-
-  .close-stats:hover {
-    color: #fff;
-  }
-
-  .stats-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-  }
-
-  .stat-group h4 {
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    margin-bottom: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .stat-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: #111;
-    border-radius: 4px;
-    margin-bottom: 6px;
-  }
-
-  .stat-label {
-    font-size: 0.85rem;
-    color: var(--text-dim);
-  }
-
-  .stat-value {
-    font-size: 0.85rem;
-    color: var(--accent);
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  /* Scrollbar */
-  .chronicle::-webkit-scrollbar,
-  .trash-list::-webkit-scrollbar,
-  .source-body::-webkit-scrollbar,
-  .stats-body::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .chronicle::-webkit-scrollbar-track,
-  .trash-list::-webkit-scrollbar-track,
-  .source-body::-webkit-scrollbar-track,
-  .stats-body::-webkit-scrollbar-track {
-    background: #000;
-  }
-
-  .chronicle::-webkit-scrollbar-thumb,
-  .trash-list::-webkit-scrollbar-thumb,
-  .source-body::-webkit-scrollbar-thumb,
-  .stats-body::-webkit-scrollbar-thumb {
-    background: #222;
-    border-radius: 4px;
-  }
-
-  .chronicle::-webkit-scrollbar-thumb:hover,
-  .trash-list::-webkit-scrollbar-thumb:hover,
-  .source-body::-webkit-scrollbar-thumb:hover,
-  .stats-body::-webkit-scrollbar-thumb:hover {
-    background: #333;
-  }
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Syne:wght@400;500;600&display=swap');
+
+  :global(*) { margin:0; padding:0; box-sizing:border-box; }
+  :global(body) { background:#050505; color:#e5e5e5; font-family:'Syne',-apple-system,sans-serif; overflow:hidden; }
+
+  .app { display:flex; height:100vh; width:100vw; }
+
+  /* SIDEBAR */
+  .sidebar { width:300px; min-width:300px; background:#080808; border-right:1px solid #111; display:flex; flex-direction:column; overflow-y:auto; }
+
+  .sidebar-header { padding:18px 20px; border-bottom:1px solid #111; display:flex; justify-content:space-between; align-items:baseline; }
+  .logo { font-size:0.95rem; font-weight:600; letter-spacing:0.04em; }
+  .version { font-size:0.58rem; color:#2a2a2a; font-family:'JetBrains Mono',monospace; }
+
+  .status-section { padding:10px 20px; border-bottom:1px solid #111; display:flex; justify-content:space-between; align-items:center; }
+  .status { display:flex; align-items:center; gap:7px; font-size:0.65rem; font-family:'JetBrains Mono',monospace; color:#333; }
+  .status-dot { width:5px; height:5px; background:#222; border-radius:50%; transition:all 0.3s; }
+  .status.online .status-dot { background:#10b981; box-shadow:0 0 6px rgba(16,185,129,0.7); }
+  .model-select { background:#0a0a0a; border:1px solid #1a1a1a; color:#555; font-size:0.62rem; padding:3px 6px; border-radius:3px; font-family:'JetBrains Mono',monospace; }
+
+  .shard-section, .filter-section { padding:14px 20px; border-bottom:1px solid #111; }
+  .section-label { font-size:0.52rem; font-family:'JetBrains Mono',monospace; color:#2a2a2a; text-transform:uppercase; letter-spacing:0.15em; margin-bottom:10px; }
+
+  .shard-info { background:rgba(16,185,129,0.03); border:1px solid rgba(16,185,129,0.12); border-radius:7px; padding:11px; }
+  .shard-title { font-weight:600; font-size:0.82rem; margin-bottom:5px; color:#e0e0e0; }
+  .shard-meta { display:flex; gap:7px; align-items:center; margin-bottom:6px; }
+  .namespace { font-size:0.58rem; font-family:'JetBrains Mono',monospace; color:#444; }
+  .trust-badge { font-size:0.52rem; font-family:'JetBrains Mono',monospace; padding:2px 6px; border-radius:3px; }
+  .trust-badge.verified { background:rgba(16,185,129,0.12); color:#10b981; }
+  .trust-badge.partial  { background:rgba(251,191,36,0.12); color:#fbbf24; }
+  .trust-badge.unverified { background:rgba(107,114,128,0.12); color:#6b7280; }
+  .trust-badge.failed   { background:rgba(239,68,68,0.12); color:#ef4444; }
+  .shard-counts { font-size:0.62rem; font-family:'JetBrains Mono',monospace; color:#444; margin-bottom:9px; }
+  .shard-actions { display:flex; gap:5px; }
+  .shard-btn { padding:4px 9px; background:#0d0d0d; border:1px solid #1a1a1a; border-radius:3px; cursor:pointer; font-size:0.65rem; color:#777; font-family:'JetBrains Mono',monospace; transition:all 0.15s; }
+  .shard-btn:hover { background:#151515; color:#ddd; }
+  .shard-btn.danger:hover { border-color:#ef4444; color:#ef4444; }
+
+  .mount-btn { width:100%; padding:13px; background:#090909; border:1px dashed #1e1e1e; border-radius:7px; color:#333; cursor:pointer; font-size:0.78rem; font-family:'Syne',sans-serif; transition:all 0.2s; }
+  .mount-btn:hover { border-color:#10b981; color:#10b981; background:rgba(16,185,129,0.03); }
+  .shard-error { margin-top:7px; font-size:0.65rem; color:#ef4444; font-family:'JetBrains Mono',monospace; }
+
+  .tier-buttons { display:flex; gap:5px; }
+  .tier-btn { flex:1; padding:6px; background:#0a0a0a; border:1px solid #181818; border-radius:3px; color:#333; font-size:0.62rem; cursor:pointer; font-family:'JetBrains Mono',monospace; transition:all 0.15s; }
+  .tier-btn:hover { color:#777; }
+  .tier-btn.active { background:rgba(16,185,129,0.07); border-color:rgba(16,185,129,0.25); color:#10b981; }
+
+  .input-section { padding:14px 20px; flex:1; display:flex; flex-direction:column; }
+  .input-label { font-size:0.52rem; font-family:'JetBrains Mono',monospace; color:#2a2a2a; text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px; }
+  .input-section textarea { flex:1; min-height:90px; background:#090909; border:1px solid #111; border-radius:7px; padding:11px; font-size:0.82rem; color:#e5e5e5; resize:none; font-family:'Syne',sans-serif; line-height:1.5; transition:border-color 0.15s; }
+  .input-section textarea:focus { outline:none; border-color:#10b981; }
+  .input-section textarea::placeholder { color:#202020; }
+  .input-actions { display:flex; gap:7px; margin-top:9px; }
+  .submit-btn { flex:1; padding:10px; background:#10b981; border:none; border-radius:5px; font-weight:600; color:#000; cursor:pointer; font-size:0.78rem; font-family:'Syne',sans-serif; transition:all 0.15s; }
+  .submit-btn:hover:not(:disabled) { background:#0ea872; }
+  .submit-btn:disabled { background:#0e0e0e; color:#2a2a2a; cursor:not-allowed; }
+  .submit-btn.secondary { flex:none; width:38px; background:#0d0d0d; border:1px solid #181818; color:#333; font-size:0.8rem; }
+  .submit-btn.secondary:hover:not(:disabled) { background:#111; color:#777; }
+
+  .sidebar-footer { padding:12px 20px; border-top:1px solid #111; }
+  .stats { display:flex; justify-content:space-between; align-items:center; font-size:0.6rem; font-family:'JetBrains Mono',monospace; color:#2a2a2a; }
+  .icon-btn { background:none; border:none; color:#2a2a2a; cursor:pointer; font-size:0.65rem; padding:3px 5px; border-radius:3px; }
+  .icon-btn:hover { background:#111; color:#777; }
+  .icon-btn.has-items { color:#f59e0b; }
+
+  /* CHRONICLE */
+  .chronicle { flex:1; overflow-y:auto; padding:36px 44px; position:relative; background:#050505; }
+
+  .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center; color:#2a2a2a; }
+  .empty-logo { font-size:3rem; margin-bottom:20px; opacity:0.12; }
+  .empty-state h2 { font-size:1.4rem; margin-bottom:8px; color:#444; font-weight:400; }
+  .empty-state p { color:#2a2a2a; font-size:0.82rem; line-height:1.6; }
+  .mount-hint { color:#10b981 !important; margin-top:14px; }
+  .suggestions { display:flex; gap:8px; margin-top:20px; flex-wrap:wrap; justify-content:center; }
+  .suggestions button { padding:8px 14px; background:#090909; border:1px solid #181818; border-radius:5px; color:#444; font-size:0.78rem; cursor:pointer; font-family:'Syne',sans-serif; transition:all 0.15s; }
+  .suggestions button:hover { border-color:#10b981; color:#10b981; }
+
+  /* NODES */
+  .chronicle-node { display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #090909; }
+  .chronicle-node.has-verified { border-left:2px solid rgba(16,185,129,0.35); padding-left:12px; margin-left:-14px; }
+
+  .node-gutter { width:48px; min-width:48px; display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
+  .node-time { font-size:0.55rem; font-family:'JetBrains Mono',monospace; color:#181818; }
+  .node-actions { display:flex; gap:1px; opacity:0; transition:opacity 0.15s; }
+  .chronicle-node:hover .node-actions { opacity:1; }
+  .action-btn { width:18px; height:18px; background:none; border:none; color:#222; cursor:pointer; font-size:0.6rem; border-radius:2px; display:flex; align-items:center; justify-content:center; }
+  .action-btn:hover { background:#111; color:#777; }
+  .action-btn.del:hover { color:#ef4444; }
+
+  .node-content { flex:1; min-width:0; }
+
+  .collapsed-row { display:flex; align-items:center; gap:8px; padding:7px 10px; background:#090909; border:1px solid #101010; border-radius:4px; cursor:pointer; }
+  .collapsed-row:hover { background:#0c0c0c; }
+  .collapsed-preview { flex:1; font-size:0.75rem; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .badge { display:inline-flex; align-items:center; padding:2px 6px; font-size:0.48rem; font-family:'JetBrains Mono',monospace; text-transform:uppercase; letter-spacing:0.07em; border-radius:2px; background:#111; color:#333; }
+  .badge.viz      { background:rgba(59,130,246,0.09); color:#3b82f6; }
+  .badge.code     { background:rgba(16,185,129,0.09); color:#10b981; }
+  .badge.write    { background:rgba(168,85,247,0.09); color:#a855f7; }
+  .badge.citation { background:rgba(16,185,129,0.11); color:#10b981; }
+  .badge.browse   { background:rgba(251,191,36,0.09); color:#fbbf24; }
+  .badge.sources  { background:rgba(99,102,241,0.09); color:#6366f1; }
+
+  .node-header { display:flex; align-items:center; gap:7px; margin-bottom:9px; flex-wrap:wrap; }
+  .node-title { font-size:0.75rem; color:#555; }
+  .lang-tag { font-size:0.52rem; font-family:'JetBrains Mono',monospace; color:#333; background:#0d0d0d; padding:1px 5px; border-radius:2px; }
+  .lock-icon { font-size:0.8rem; }
+  .claim-label { font-size:0.6rem; color:#333; font-family:'JetBrains Mono',monospace; }
+
+  .system-row { display:flex; align-items:center; gap:7px; padding:7px 10px; background:rgba(99,102,241,0.04); border-radius:4px; font-size:0.7rem; color:#5558c8; font-family:'JetBrains Mono',monospace; }
+  .error-row { padding:10px 12px; background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.12); border-radius:5px; color:#f87171; font-size:0.75rem; font-family:'JetBrains Mono',monospace; }
+
+  .intent-label { font-size:0.48rem; font-family:'JetBrains Mono',monospace; color:#222; text-transform:uppercase; letter-spacing:0.15em; margin-bottom:4px; }
+  .intent-text { font-size:0.92rem; color:#e5e5e5; line-height:1.5; }
+  .chat-text { font-size:0.87rem; line-height:1.7; color:#999; white-space:pre-wrap; }
+
+  .citation-block { background:rgba(16,185,129,0.025); border:1px solid rgba(16,185,129,0.1); border-radius:6px; padding:12px; cursor:pointer; transition:all 0.15s; }
+  .citation-block:hover { background:rgba(16,185,129,0.05); border-color:rgba(16,185,129,0.18); }
+  .citation-block blockquote { font-size:0.87rem; color:#aaa; border-left:2px solid #10b981; padding-left:11px; margin:0; font-style:italic; line-height:1.5; }
+  .citation-meta { display:flex; gap:12px; margin-top:9px; font-size:0.57rem; font-family:'JetBrains Mono',monospace; color:#333; }
+  .verify-link { margin-left:auto; color:#3b82f6; }
+
+  .sources-row { display:flex; align-items:center; gap:7px; padding:7px 10px; background:rgba(99,102,241,0.03); border-radius:4px; font-size:0.78rem; color:#6a6df0; }
+  .expand-btn { margin-left:auto; background:none; border:1px solid #1e1e1e; color:#444; padding:2px 7px; border-radius:3px; font-size:0.6rem; cursor:pointer; font-family:'JetBrains Mono',monospace; }
+  .expand-btn:hover { border-color:#6366f1; color:#6366f1; }
+  .sources-list { margin-top:6px; display:flex; flex-direction:column; gap:4px; }
+  .source-item { padding:7px 9px; background:#080808; border:1px solid #0f0f0f; border-radius:4px; font-size:0.72rem; color:#666; cursor:pointer; display:flex; align-items:center; gap:7px; transition:all 0.15s; }
+  .source-item:hover { background:#0a0a0a; border-color:#1a1a1a; }
+  .src-subject { color:#ddd; font-weight:500; }
+  .src-pred { color:#10b981; }
+  .tier-pill { font-size:0.52rem; background:#0e0e0e; padding:1px 5px; border-radius:2px; font-family:'JetBrains Mono',monospace; color:#444; }
+
+  .claims-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:8px; margin-top:9px; }
+  .claim-card { background:#080808; border:1px solid #0f0f0f; border-radius:6px; padding:10px; cursor:pointer; transition:all 0.15s; }
+  .claim-card:hover { background:#0a0a0a; border-color:rgba(16,185,129,0.15); }
+  .triple { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; font-size:0.77rem; }
+  .subj { color:#e0e0e0; font-weight:500; }
+  .pred { color:#10b981; }
+  .obj  { color:#666; }
+  .claim-ev { font-size:0.67rem; color:#333; font-style:italic; margin-bottom:6px; line-height:1.4; }
+  .claim-meta { display:flex; gap:7px; font-size:0.57rem; color:#222; align-items:center; }
+  .has-src { color:#10b981; }
+
+  .viz-wrap { background:#080808; border:1px solid #0f0f0f; border-radius:6px; padding:14px; min-height:160px; display:flex; align-items:center; justify-content:center; }
+  .viz-err { color:#ef4444; font-size:0.72rem; font-family:'JetBrains Mono',monospace; }
+  :global(.viz-wrap svg) { max-width:100%; max-height:400px; }
+
+  .code-block { background:#080808; border:1px solid #0f0f0f; border-radius:6px; padding:12px; overflow-x:auto; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#10b981; line-height:1.5; }
+  .write-block { background:#080808; border:1px solid #0f0f0f; border-radius:6px; padding:16px; font-size:0.87rem; line-height:1.8; color:#aaa; white-space:pre-wrap; }
+
+  .annotation { margin-top:9px; padding:7px 11px; background:rgba(167,139,250,0.03); border-left:2px solid rgba(167,139,250,0.15); border-radius:0 4px 4px 0; font-size:0.77rem; color:#9b7fd4; cursor:pointer; }
+  .annotation:hover { background:rgba(167,139,250,0.06); }
+  .ann-editor { margin-top:9px; padding:9px; background:#090909; border:1px solid #111; border-radius:4px; }
+  .ann-editor textarea { width:100%; background:#0c0c0c; border:1px solid #1a1a1a; border-radius:3px; padding:7px; font-size:0.77rem; color:#e5e5e5; resize:none; margin-bottom:7px; font-family:'Syne',sans-serif; }
+  .ann-actions { display:flex; gap:5px; }
+  .ann-btn { padding:4px 10px; border:none; border-radius:3px; font-size:0.65rem; cursor:pointer; font-family:'Syne',sans-serif; }
+  .ann-btn.save { background:#3b82f6; color:#fff; }
+  .ann-btn.cancel { background:#111; color:#555; }
+
+  .processing { display:flex; gap:4px; padding:9px 0; }
+  .dot { width:6px; height:6px; background:#1a1a1a; border-radius:50%; animation:pulse 1.4s infinite ease-in-out; }
+  .dot:nth-child(2) { animation-delay:0.2s; }
+  .dot:nth-child(3) { animation-delay:0.4s; }
+  @keyframes pulse { 0%,80%,100%{opacity:0.2;transform:scale(0.8);}40%{opacity:1;transform:scale(1);} }
+
+  .scroll-indicator { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); padding:8px 16px; background:#10b981; border:none; border-radius:16px; color:#000; font-size:0.72rem; font-weight:600; cursor:pointer; z-index:100; box-shadow:0 4px 14px rgba(16,185,129,0.25); font-family:'Syne',sans-serif; }
+
+  /* PANELS */
+  .panel { position:absolute; top:0; right:0; width:400px; height:100%; background:#080808; border-left:1px solid #111; display:flex; flex-direction:column; z-index:200; box-shadow:-6px 0 28px rgba(0,0,0,0.7); }
+  .panel-header { padding:16px 18px; border-bottom:1px solid #111; display:flex; justify-content:space-between; align-items:center; }
+  .panel-header h3 { font-size:0.85rem; font-weight:600; }
+  .close-btn { background:none; border:none; color:#333; font-size:1.3rem; cursor:pointer; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:3px; }
+  .close-btn:hover { background:#111; color:#ddd; }
+  .panel-body { padding:18px; flex:1; overflow-y:auto; }
+  .panel-empty { padding:36px; text-align:center; color:#1e1e1e; }
+
+  .source-panel .panel-header h3 { color:#10b981; }
+  .verify-status { padding:9px 12px; border-radius:4px; font-size:0.7rem; font-family:'JetBrains Mono',monospace; margin-bottom:16px; background:#0a0a0a; color:#444; }
+  .verify-status.ok   { background:rgba(16,185,129,0.07); color:#10b981; }
+  .verify-status.fail { background:rgba(239,68,68,0.07); color:#ef4444; }
+  .meta-rows { margin-bottom:16px; }
+  .meta-row { display:flex; gap:9px; margin-bottom:7px; font-size:0.7rem; align-items:baseline; }
+  .ml { color:#333; min-width:80px; }
+  .mv { font-family:'JetBrains Mono',monospace; color:#10b981; font-size:0.65rem; word-break:break-all; }
+  .compare-block { margin-bottom:14px; }
+  .compare-label { font-size:0.55rem; text-transform:uppercase; color:#333; margin-bottom:5px; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; }
+  .evidence-q, .source-q { background:#090909; border:1px solid #0f0f0f; border-radius:4px; padding:10px; font-size:0.82rem; color:#666; font-style:italic; line-height:1.5; }
+  .source-q.match { border-color:rgba(16,185,129,0.2); color:#10b981; }
+  .verify-confirm { margin-top:14px; padding:10px; background:rgba(16,185,129,0.05); border-radius:4px; font-size:0.75rem; color:#10b981; text-align:center; font-family:'JetBrains Mono',monospace; }
+
+  .stat-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:9px; margin-bottom:18px; }
+  .stat-card { background:#0d0d0d; border:1px solid #111; border-radius:6px; padding:12px; text-align:center; }
+  .sv { display:block; font-size:1.3rem; font-weight:600; color:#fff; margin-bottom:3px; }
+  .sl { font-size:0.52rem; color:#333; text-transform:uppercase; font-family:'JetBrains Mono',monospace; letter-spacing:0.1em; }
+  .tier-section { margin-bottom:14px; }
+  .tier-head { font-size:0.7rem; color:#666; margin-bottom:9px; font-weight:500; }
+  .tier-row { display:flex; align-items:center; gap:9px; margin-bottom:7px; }
+  .tl { width:85px; font-size:0.65rem; color:#444; }
+  .tbar { flex:1; height:5px; background:#111; border-radius:3px; overflow:hidden; }
+  .tfill { height:100%; border-radius:3px; transition:width 0.4s; }
+  .tfill.t0 { background:#10b981; }
+  .tfill.t1 { background:#fbbf24; }
+  .tfill.t2 { background:#f87171; }
+  .tc { width:28px; text-align:right; font-size:0.6rem; font-family:'JetBrains Mono',monospace; color:#555; }
+  .pred-count { padding:9px; background:#0d0d0d; border-radius:4px; text-align:center; color:#555; font-size:0.77rem; }
+
+  .trash-list { flex:1; overflow-y:auto; padding:9px; }
+  .trash-item { display:flex; justify-content:space-between; align-items:center; padding:9px 11px; background:#0d0d0d; border:1px solid #111; border-radius:4px; margin-bottom:5px; }
+  .trash-type { font-size:0.52rem; font-family:'JetBrains Mono',monospace; color:#333; text-transform:uppercase; display:block; margin-bottom:2px; }
+  .trash-preview { font-size:0.7rem; color:#555; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; max-width:220px; }
+  .restore-btn { padding:4px 9px; border:none; border-radius:3px; font-size:0.6rem; cursor:pointer; background:#111; color:#10b981; flex-shrink:0; margin-left:9px; }
+  .restore-btn:hover { background:rgba(16,185,129,0.07); }
+  .empty-btn { margin:9px; padding:9px; background:#0d0d0d; border:1px solid #111; color:#ef4444; border-radius:4px; font-size:0.7rem; cursor:pointer; width:calc(100% - 18px); font-family:'Syne',sans-serif; }
+  .empty-btn:hover { background:#110a0a; border-color:#ef4444; }
+
+  .setting-group { margin-bottom:16px; }
+  .setting-group label { display:block; font-size:0.6rem; color:#555; margin-bottom:6px; text-transform:uppercase; font-family:'JetBrains Mono',monospace; letter-spacing:0.1em; }
+  .setting-group select { width:100%; padding:8px 9px; background:#0d0d0d; border:1px solid #1a1a1a; border-radius:4px; color:#e5e5e5; font-size:0.82rem; font-family:'Syne',sans-serif; }
+  .setting-info { background:#0d0d0d; border-radius:4px; padding:11px; font-size:0.7rem; color:#444; line-height:1.6; }
+  .setting-info p { margin-bottom:4px; }
+  .setting-info strong { color:#666; }
+
+  .chronicle::-webkit-scrollbar, .panel-body::-webkit-scrollbar { width:5px; }
+  .chronicle::-webkit-scrollbar-track, .panel-body::-webkit-scrollbar-track { background:transparent; }
+  .chronicle::-webkit-scrollbar-thumb, .panel-body::-webkit-scrollbar-thumb { background:#111; border-radius:3px; }
+  .chronicle::-webkit-scrollbar-thumb:hover, .panel-body::-webkit-scrollbar-thumb:hover { background:#1a1a1a; }
 </style>

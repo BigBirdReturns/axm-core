@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 import pyarrow.parquet as pq
+import pytest
 
 from axm_verify.logic import verify_shard
 from axm_verify.crypto import compute_merkle_root
@@ -31,6 +32,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLD_SHARD = REPO_ROOT / "shards" / "gold" / "fm21-11-hemorrhage-v1"
 TRUSTED_KEY = REPO_ROOT / "keys" / "canonical_test_publisher.pub"
 
+needs_gold = pytest.mark.skipif(
+    not GOLD_SHARD.exists(),
+    reason="Gold shard not built (run: axm-build gold-fm21-11 <source> shards/gold/fm21-11-hemorrhage-v1/)"
+)
+
 
 def _copy_gold(tmp_path: Path) -> Path:
     dst = tmp_path / "shard"
@@ -41,25 +47,34 @@ def _copy_gold(tmp_path: Path) -> Path:
 def _resign(shard: Path) -> None:
     """Recompute Merkle root, update manifest, and re-sign."""
     manifest = json.loads((shard / "manifest.json").read_text())
-    manifest["integrity"]["merkle_root"] = compute_merkle_root(shard)
+    suite = manifest.get("suite", "ed25519")
+    manifest["integrity"]["merkle_root"] = compute_merkle_root(shard, suite=suite)
     manifest["shard_id"] = f"shard_blake3_{manifest['integrity']['merkle_root']}"
     manifest_bytes = dumps_canonical_json(manifest)
     (shard / "manifest.json").write_bytes(manifest_bytes)
 
-    sk = signing_key_from_private_key_bytes(CANONICAL_TEST_PRIVATE_KEY)
-    (shard / "sig" / "manifest.sig").write_bytes(sk.sign(manifest_bytes).signature)
+    if suite == "axm-blake3-mldsa44":
+        from axm_build.sign import mldsa44_keygen
+        kp = mldsa44_keygen()
+        (shard / "sig" / "publisher.pub").write_bytes(kp.public_key)
+        (shard / "sig" / "manifest.sig").write_bytes(kp.sign(manifest_bytes))
+    else:
+        sk = signing_key_from_private_key_bytes(CANONICAL_TEST_PRIVATE_KEY)
+        (shard / "sig" / "manifest.sig").write_bytes(sk.sign(manifest_bytes).signature)
 
 
 # ============================================================================
 # Core ext/ behavior
 # ============================================================================
 
+@needs_gold
 def test_gold_shard_no_ext_still_passes():
     """Gold shard has no ext/ and must continue to pass."""
     res = verify_shard(GOLD_SHARD, trusted_key_path=TRUSTED_KEY)
     assert res["status"] == "PASS"
 
 
+@needs_gold
 def test_shard_with_empty_ext_passes(tmp_path):
     """Empty ext/ directory should be allowed."""
     shard = _copy_gold(tmp_path)
@@ -70,6 +85,7 @@ def test_shard_with_empty_ext_passes(tmp_path):
     assert res["status"] == "PASS"
 
 
+@needs_gold
 def test_shard_with_ext_file_covered_by_merkle(tmp_path):
     """ext/ files are included in Merkle tree. Valid if re-signed."""
     shard = _copy_gold(tmp_path)
@@ -80,6 +96,7 @@ def test_shard_with_ext_file_covered_by_merkle(tmp_path):
     assert res["status"] == "PASS"
 
 
+@needs_gold
 def test_ext_file_without_resign_fails_merkle(tmp_path):
     """Adding ext/ file without re-signing must fail Merkle check."""
     shard = _copy_gold(tmp_path)
@@ -92,6 +109,7 @@ def test_ext_file_without_resign_fails_merkle(tmp_path):
     assert "E_MERKLE_MISMATCH" in codes
 
 
+@needs_gold
 def test_junk_root_dir_still_rejected(tmp_path):
     """Non-ext/ extra directories must still fail E_LAYOUT_DIRTY."""
     shard = _copy_gold(tmp_path)
@@ -102,6 +120,7 @@ def test_junk_root_dir_still_rejected(tmp_path):
     assert "E_LAYOUT_DIRTY" in codes
 
 
+@needs_gold
 def test_multiple_junk_dirs_rejected(tmp_path):
     """Multiple unauthorized directories all get rejected."""
     shard = _copy_gold(tmp_path)
@@ -111,6 +130,7 @@ def test_multiple_junk_dirs_rejected(tmp_path):
     assert res["status"] == "FAIL"
 
 
+@needs_gold
 def test_ext_plus_junk_rejected(tmp_path):
     """ext/ is fine but any other extra dir still fails."""
     shard = _copy_gold(tmp_path)

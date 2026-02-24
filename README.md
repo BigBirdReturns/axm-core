@@ -1,263 +1,127 @@
-# AXM Stack v1 - Complete
+# AXM Core
 
-Assembled: 2026-02-03
+The complete stack for creating and consuming verified knowledge shards.
 
-## What This Is
-
-A complete, working stack for creating and consuming verified knowledge shards.
-
-**The Pipeline:**
 ```
 Document → Forge → Genesis → Shard → Nodal Flow
-           extract   compile   mount    query
-                     verify            verify
+           extract   compile   mount    query + verify
 ```
-
-**The Contract:**
-- Genesis 1.0 is **FROZEN** - the specification does not change
-- Forge produces Genesis-compliant shards
-- Nodal Flow only mounts Genesis-verified shards
-- Every claim has cryptographic provenance
 
 ## Components
 
-| Component | Version | Status | Purpose |
-|-----------|---------|--------|---------|
-| Genesis | 1.0 | FROZEN | Specification + compiler + verifier |
-| Forge | 2.0 | Patched | Document extraction pipeline |
-| Clarion | 2.0 | Complete | Optional encryption (GraphKDF) |
-| Spectra | 0.3 | Patched | Runtime query engine |
-| Nodal Flow | 2.0 | Patched | Desktop UI (Tauri + Svelte) |
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| **Genesis** | Shard specification, compiler, verifier | v1.1.0 — PQ signing (ML-DSA-44) + Ed25519 backward compat |
+| **Forge** | Document extraction pipeline | Tier 0/1 regex + Tier 3 LLM (Ollama) |
+| **Spectra** | Runtime query engine (DuckDB + SQL gate) | Operational |
+| **Clarion** | Topology-bound encryption (GraphKDF) | Complete |
+| **Nodal Flow** | Desktop UI (Tauri + Svelte + DuckDB) | v2.0 — Vault, citations, verification |
 
 ## Quick Start
 
-### 1. Set up Python environment
-
 ```bash
-cd axm-stack-v1
+# Install
+python -m venv .venv && source .venv/bin/activate
+pip install blake3 cryptography pyarrow duckdb click pysbd pynacl dilithium-py
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+export PYTHONPATH="$PWD/genesis/src:$PWD/forge:$PWD/spectra"
 
-# Install dependencies
-pip install blake3 cryptography pyarrow duckdb click
-
-# Set PYTHONPATH
-export PYTHONPATH="$PWD/genesis/src:$PWD/forge:$PWD/clarion:$PWD/spectra"
-```
-
-### 2. Verify the gold shard
-
-```bash
-python -m axm_verify.cli shard genesis/shards/gold/fm21-11-hemorrhage-v1 \
+# Verify the gold shard
+python -m axm_verify.cli shard genesis/shards/gold/fm21-11-hemorrhage-v1/ \
   --trusted-key genesis/shards/gold/fm21-11-hemorrhage-v1/sig/publisher.pub
+
+# Run tests (34 pass, 10 skip without gold shard binaries)
+cd genesis && python -m pytest tests/ -v
 ```
 
-Expected output: `PASS`
+## Creating a Shard
 
-### 3. Run Nodal Flow (Desktop UI)
+### From structured documents (tier 0/1, no LLM needed)
+
+```bash
+python forge_run.py --input ./my_docs/ --output ./out/my_shard/ --skip-llm
+```
+
+### With LLM extraction (requires Ollama)
+
+```bash
+ollama serve &
+ollama pull llama3:8b
+
+python forge_run.py --input ./my_docs/ --output ./out/my_shard/
+
+# Checkpoints automatically. If it crashes, rerun the same command.
+```
+
+### Plan before running
+
+```bash
+python forge_run.py --input ./my_docs/ --plan-only
+```
+
+## Using Nodal Flow
 
 ```bash
 cd nodalflow
-
-# Install Node dependencies
 npm install
-
-# Run in development mode
 npm run tauri dev
 ```
 
-### 4. Use the app
-
-1. **Mount a shard**: Click "📁 Mount Shard" → select `genesis/shards/gold/fm21-11-hemorrhage-v1`
-2. **Query**: Type "What treats bleeding?"
-3. **Verify**: Click any citation → see source bytes → green checkmark
-4. **Create new shard**: Drag a .txt or .pdf file into the window
-
-## End-to-End Flow
-
-### Creating a shard from a document
-
-**Via CLI:**
-```bash
-python -m axm_forge.cli.main build document.txt \
-  --out ./shards/my-shard \
-  --namespace my-domain \
-  --publisher-id @me \
-  --publisher-name "My Name"
-```
-
-**Via Nodal Flow:**
-1. Drag document into the app window
-2. Wait for "✓ Shard created" message
-3. Shard auto-mounts
-4. Claims appear in chronicle
-
-### What happens under the hood
-
-```
-1. Forge reads document.txt
-2. Forge extracts claims (tier1_regex patterns)
-3. Forge writes source.txt + candidates.jsonl
-4. Forge calls: python -m axm_build.cli compile ...
-5. Genesis compiles parquet files + manifest
-6. Genesis signs with Ed25519
-7. Forge calls: python -m axm_verify.cli shard ...
-8. Genesis verifies Merkle root + signature
-9. Shard directory is ready to mount
-```
+1. Mount a shard directory
+2. Query in natural language
+3. Click any citation to verify source bytes
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Nodal Flow (Tauri + Svelte)                                │
-│  - Mount/unmount shards                                     │
-│  - Query with vault-first strategy                          │
-│  - Verify provenance (green padlock)                        │
-│  - Create shards via document drop                          │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ invoke()
-┌─────────────────────────────┴───────────────────────────────┐
-│  Vault (Rust + DuckDB)                                      │
-│  - mount_vault, query_vault, verify_claim                   │
-│  - create_shard_from_document → calls Forge                 │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ subprocess
-┌─────────────────────────────┴───────────────────────────────┐
-│  Forge (Python)                                             │
-│  - Extraction: tier1_regex, tier3_llm (optional)            │
-│  - Emission: candidates.jsonl → Genesis compile             │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ subprocess
-┌─────────────────────────────┴───────────────────────────────┐
-│  Genesis (Python)                                           │
-│  - axm_build: compile source + claims → shard               │
-│  - axm_verify: verify Merkle root + signature               │
-│  - SPECIFICATION: frozen, authoritative                     │
-└─────────────────────────────────────────────────────────────┘
+Nodal Flow (Tauri + Svelte)
+    │
+    ▼
+Vault (Rust + DuckDB)         ← mounts shard, queries claims, verifies spans
+    │
+    ▼
+Cortex (Ollama)               ← formats responses with citation nodes
+    │
+    ▼
+AXM Shard                     ← graph/ + evidence/ + content/ + sig/
+    │
+    ▼
+Genesis Compiler               ← candidates.jsonl → signed shard
+    │
+    ▼
+Forge Extractors               ← tier 0 regex, tier 1 rules, tier 3 LLM
 ```
 
-## Key Files Changed
+## Cryptographic Suites
 
-### Forge: `forge/axm_forge/emission/genesis_emission.py`
-- Added `EmissionConfig` and `EmissionResult` dataclasses
-- Added `call_axm_build()` - shells out to Genesis with correct CLI flags
-- Added `call_axm_verify()` - verifies shard after creation
-- Fixed CLI invocation: `--candidates` and `--out` as flags, not positional
+New shards default to post-quantum signing:
 
-### Nodal Flow: `nodalflow/src-tauri/src/main.rs`
-- Added `create_shard_from_document` command - calls Forge build
-- Added `doctor` command - checks Python/Forge/Genesis availability
+| Suite | Algorithm | Key Size | Status |
+|-------|-----------|----------|--------|
+| Ed25519 | Ed25519 | 32 B | Legacy, backward compatible |
+| `axm-blake3-mldsa44` | ML-DSA-44 (FIPS 204) | 1312 B | Default for new shards |
 
-### Nodal Flow: `nodalflow/src/App.svelte`
-- Added document drop zone with drag-and-drop handling
-- Added `handleDocumentDrop()` - creates shard, auto-mounts
-- Added `runDoctor()` - health check on startup
-- Added drop overlay UI
+Both use Blake3 Merkle trees and SHA-256 content hashing.
 
-## Shard Layout (Genesis 1.0 Spec)
+## Key Files
 
-```
-my-shard/
-├── manifest.json          # Metadata + Merkle root
-├── graph/
-│   ├── claims.parquet     # Subject-predicate-object triples
-│   ├── entities.parquet   # Entity definitions
-│   └── provenance.parquet # Claim-to-evidence links
-├── evidence/
-│   └── spans.parquet      # Byte ranges into source
-├── content/
-│   └── source.txt         # Original document
-└── sig/
-    ├── publisher.pub      # Ed25519 public key
-    └── manifest.sig       # Signature over manifest
-```
+| File | Purpose |
+|------|---------|
+| `forge_run.py` | Set-and-forget ingestion: documents → signed shard |
+| `nodal_run.py` | Single-article pipeline (Wikipedia → shard) |
+| `genesis/spec/v1.0/SPECIFICATION.md` | Frozen protocol definition |
+| `INVARIANTS.md` | Absolute constraints on all code changes |
+| `IDENTITY.md` | How IDs are generated and what survives rebuilds |
+| `EXTENSIONS_REGISTRY.md` | Extension parquet schemas |
 
-## Plugin Points
+## What's Frozen
 
-### Adding domain extractors
+The Genesis v1.0 specification (Sections 1-10), shard layout, Merkle computation, parquet schemas, and identifier generation are frozen. The gold shard is the definition of correctness.
 
-Create `forge/axm_forge/extraction/tiers/tier1_mydomain.py`:
+Section 11 (cryptographic suites) was added in v1.1.0 as a backward-compatible extension.
 
-```python
-import re
-from typing import List
-from axm_forge.models.claims import Claim, Arg, Span
-
-PATTERNS = [
-    (r'pattern', 'predicate_name'),
-]
-
-def extract(text: str) -> List[Claim]:
-    claims = []
-    for pattern, predicate in PATTERNS:
-        for m in re.finditer(pattern, text):
-            claims.append(Claim(
-                predicate=predicate,
-                args=[Arg(role="subject", entity_id="entity:doc")],
-                value=m.group(1),
-                source_spans=[Span(start=m.start(), end=m.end(), snippet=m.group(0))],
-                tier=1,
-            ))
-    return claims
-```
-
-Register in `forge/axm_forge/extraction/registry.py`.
-
-## Testing
-
-### Verify stack health
-
-```bash
-# In Nodal Flow, check console for:
-# "AXM Stack Health: {forge_importable: true, genesis_build_importable: true, ...}"
-
-# Or manually:
-python -c "import axm_forge; print('Forge OK')"
-python -c "import axm_build; print('Genesis build OK')"
-python -c "import axm_verify; print('Genesis verify OK')"
-```
-
-### Run integration test
-
-```bash
-python integration_test.py --input forge/inputs/doc1.txt --workdir ./test_output
-```
-
-## Troubleshooting
-
-### "axm_forge module not found"
-Set PYTHONPATH:
-```bash
-export PYTHONPATH="$PWD/genesis/src:$PWD/forge:$PWD/clarion:$PWD/spectra"
-```
-
-### "Forge failed: axm-build failed"
-Check that Genesis CLI is accessible:
-```bash
-python -m axm_build.cli --help
-```
-
-### "Verification failed"
-The shard may be corrupted or tampered. Re-create it from source.
-
-## What's Frozen vs. What Can Change
-
-**FROZEN (do not modify):**
-- `genesis/spec/v1.0/SPECIFICATION.md`
-- Shard layout structure
-- Merkle root computation
-- Ed25519 signature scheme
-- Parquet schemas
-
-**CAN CHANGE:**
-- Forge extractors (add new patterns, new tiers)
-- Nodal Flow UI (new features, new panels)
-- Clarion encryption parameters
-- Documentation
+Everything else — extractors, UI, query engine, encryption — can change freely.
 
 ## License
 
-MIT (or as specified in component directories)
+MIT
