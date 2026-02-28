@@ -7,6 +7,7 @@ name = "axm-core"
 version = "1.0.0"
 description = "AXM orchestration hub: registry, forge, and tooling surface over axm-genesis"
 readme = "README.md"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
   # ── Protocol kernel — pinned to signed release tag ────────────────────

@@ -125,4 +125,4 @@ Both use Blake3 for hashing. Merkle construction differs by suite: Ed25519 uses 
 
 ## License
 
-MIT
+Apache-2.0
