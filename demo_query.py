@@ -7,11 +7,11 @@ Where C(Q) returns ONLY verified, cited, compiled knowledge.
 
 Usage:
     # With Ollama running locally:
-    python demo_query.py --shard genesis/shards/gold/fm21-11-hemorrhage-v1 \\
+    python demo_query.py --shard <path-to-axm-genesis>/shards/gold/fm21-11-hemorrhage-v1 \\
         --question "When should I apply a tourniquet?"
 
     # Without LLM (shows verification pipeline only):
-    python demo_query.py --shard genesis/shards/gold/fm21-11-hemorrhage-v1 \\
+    python demo_query.py --shard <path-to-axm-genesis>/shards/gold/fm21-11-hemorrhage-v1 \\
         --question "How do I stop bleeding?" --no-llm
 
     # With specific model:

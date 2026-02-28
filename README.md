@@ -1,98 +1,62 @@
 # AXM Core
 
-The complete stack for creating and consuming verified knowledge shards.
+The orchestration hub of the AXM ecosystem. Sits between the cryptographic kernel (axm-genesis) and domain spokes (axm-embodied and others).
 
 ```
-Document → Forge → Genesis → Shard → Nodal Flow
-           extract   compile   mount    query + verify
+axm-genesis  ←  axm-core  ←  spokes
+  kernel          hub
 ```
 
 ## Components
 
-| Component | Purpose | Status |
-|-----------|---------|--------|
-| **Genesis** | Shard specification, compiler, verifier | v1.1.0 — PQ signing (ML-DSA-44) + Ed25519 backward compat |
-| **Forge** | Document extraction pipeline | Tier 0/1 regex + Tier 3 LLM (Ollama) |
-| **Spectra** | Runtime query engine (DuckDB + SQL gate) | Operational |
-| **Clarion** | Topology-bound encryption (GraphKDF) | Complete |
-| **Nodal Flow** | Desktop UI (Tauri + Svelte + DuckDB) | v2.0 — Vault, citations, verification |
-| **Registry** | Artifact naming layer — maps human refs to shard_ids | v0 — file-backed |
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **axm-genesis** | declared dependency | Shard spec, compiler, verifier, post-quantum crypto |
+| **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
+| **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
+| **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
+| **Nodal Flow** | `nodalflow/` | Desktop UI (Tauri + Svelte + DuckDB) |
+
+## Dependency graph
+
+```
+axm-genesis (cryptographic kernel — immutable)
+  axm_build.*    compiler, Merkle, signing
+  axm_verify.*   verifier, error codes, schemas
+       ↑
+axm-core (this repo — orchestration hub)
+  pyproject.toml declares axm-genesis@v1.2.0
+  forge/         document ingestion
+  spectra/       runtime query
+  clarion/       encryption transport
+  nodalflow/     desktop UI
+       ↑
+axm-embodied (physical liability spoke)
+axm-<other>     (future spokes)
+```
+
+`axm-core` does not vendor `axm-genesis`. The genesis kernel is a declared dependency pinned to a release tag.
 
 ## Quick Start
 
 ```bash
-# Install
-python -m venv .venv && source .venv/bin/activate
-pip install blake3 cryptography pyarrow duckdb click pysbd pynacl dilithium-py jsonschema
+python -m venv .venv
+source .venv/bin/activate
 
-export PYTHONPATH="$PWD/genesis/src:$PWD/forge:$PWD/spectra"
+# Install axm-core root (pulls axm-genesis@v1.2.0 automatically)
+pip install -e .
 
-# Verify the gold shard
-python -m axm_verify.cli shard genesis/shards/gold/fm21-11-hemorrhage-v1/ \
-  --trusted-key genesis/shards/gold/fm21-11-hemorrhage-v1/sig/publisher.pub
+# Install forge separately
+pip install -e ./forge
 
-# Run tests (34 pass, 10 skip without gold shard binaries)
-cd genesis && python -m pytest tests/ -v
-```
-
-## Unified CLI
-
-The `axm` CLI is the orchestration layer. It translates human names into
-cryptographic shard_ids and routes them to the correct subsystem without
-violating their boundaries.
-
-```bash
-# Build: ingest a document, compile a shard, register it
-axm build ./docs/fm21.pdf --name medical/fm21
-
-# Verify: run Genesis hard verifier against a named artifact
-axm verify medical/fm21
-
-# Mount: verify then mount into Spectra runtime
-axm mount medical/fm21
-
-# Pin: snapshot current state for reproducible runs
-axm pin medical/fm21 legal/lafc-divorce-2024
-
-# Mount from lockfile (policy shifts cannot move these feet)
-axm mount --lock axm.lock.json medical/fm21
-
-# Resolve: see what a name points to
-axm resolve medical/fm21
-
-# History: see the lineage of an artifact
-axm history medical/fm21
-
-# Alias: add a shorthand
-axm alias medical/fm21 fm21:latest
-```
-
-Registry state lives in `registry/artifacts.json`. See `registry/SCHEMA.md`
-for the full schema and `cli/CONTRACT.md` for the complete verb reference.
-
-## Direct Pipeline Runners
-
-For single-document or scripted workflows that bypass the CLI:
-
-```bash
-# forge_run.py: directory of documents → signed shard (with checkpointing)
-python forge_run.py --input ./legal_docs/ --output ./out/legal/
-python forge_run.py --input ./legal_docs/ --plan-only
-python forge_run.py --input ./legal_docs/ --resume
-
-# nodal_run.py: single article → signed shard (Wikipedia or local file)
-python nodal_run.py "Tranexamic acid"
-python nodal_run.py "https://en.wikipedia.org/wiki/Aspirin"
-python nodal_run.py --source my_document.txt --out-dir out/my_doc
-
-# demo_query.py: mount a shard and query it with hallucination checking
-python demo_query.py --shard genesis/shards/gold/fm21-11-hemorrhage-v1 \
-    --question "When should I apply a tourniquet?"
+# Verify the gold shard (comes from axm-genesis)
+axm-verify shard $(pip show axm-genesis | grep Location | awk '{print $2}')/axm_genesis_data/shards/gold/fm21-11-hemorrhage-v1/ \
+  --trusted-key <path-to>/keys/canonical_test_publisher.pub
 ```
 
 ## Creating a Shard
 
-### From structured documents (tier 0/1, no LLM needed)
+### From structured documents (no LLM needed)
 
 ```bash
 python forge_run.py --input ./my_docs/ --output ./out/my_shard/ --skip-llm
@@ -103,19 +67,27 @@ python forge_run.py --input ./my_docs/ --output ./out/my_shard/ --skip-llm
 ```bash
 ollama serve &
 ollama pull llama3:8b
-
 python forge_run.py --input ./my_docs/ --output ./out/my_shard/
-
-# Checkpoints automatically. If it crashes, rerun the same command.
+# Checkpoints automatically. Rerun same command to resume.
 ```
 
-### Plan before running
+### Single article from Wikipedia
 
 ```bash
-python forge_run.py --input ./my_docs/ --plan-only
+python nodal_run.py "Tranexamic acid"
+python nodal_run.py --source my_document.txt --out-dir out/my_doc
 ```
 
-## Using Nodal Flow
+## Installing sub-components separately
+
+Forge, Spectra, and Clarion each have their own `pyproject.toml`. Install them as needed:
+
+```bash
+pip install -e ./forge     # axm-forge CLI
+pip install -e ./clarion   # topology-bound encryption
+```
+
+## Nodal Flow (Desktop UI)
 
 ```bash
 cd nodalflow
@@ -123,72 +95,33 @@ npm install
 npm run tauri dev
 ```
 
-1. Mount a shard directory
-2. Query in natural language
-3. Click any citation to verify source bytes
+Mount a shard → query in natural language → click any citation to verify source bytes.
 
-## Architecture
+## What's frozen (from axm-genesis)
 
-```
-Nodal Flow (Tauri + Svelte)
-    │
-    ▼
-axm_cli.py (Registry + orchestration)   ← human names resolved here only
-    │
-    ├── Registry (artifacts.json)        ← name → shard_id mapping
-    │
-    ├── Forge (subprocess)               ← ingestion + extraction
-    │
-    ├── Genesis (subprocess)             ← verification
-    │
-    └── Spectra (HTTP)                   ← mount + query
-         │
-         ▼
-    Vault (Rust + DuckDB)               ← mounts shard, queries claims
-         │
-         ▼
-    AXM Shard                           ← graph/ + evidence/ + content/ + sig/
-```
+The shard layout, Merkle computation, Parquet schemas, identifier generation, and the gold shard (`fm21-11-hemorrhage-v1`) are frozen in the Genesis spec. The gold shard is the definition of correctness.
 
-## Cryptographic Suites
+See `INVARIANTS.md` for absolute constraints on all changes.
 
-New shards default to post-quantum signing:
-
-| Suite | Algorithm | Key Size | Status |
-|-------|-----------|----------|--------|
-| Ed25519 | Ed25519 | 32 B | Legacy, backward compatible |
-| `axm-blake3-mldsa44` | ML-DSA-44 (FIPS 204) | 1312 B | Default for new shards |
-
-Both use Blake3 Merkle trees and SHA-256 content hashing.
-
-## Key Files
+## Key files
 
 | File | Purpose |
 |------|---------|
-| `axm_cli.py` | Unified CLI orchestrator: build, verify, mount, pin |
-| `registry/` | Artifact naming layer — maps human refs to shard_ids |
-| `registry/SCHEMA.md` | Registry JSON schema and lockfile contract |
-| `cli/CONTRACT.md` | CLI verb reference, exit codes, machine output |
-| `forge_run.py` | Set-and-forget ingestion: documents → signed shard |
+| `pyproject.toml` | Root package — declares axm-genesis dependency |
+| `forge_run.py` | Documents → signed shard pipeline |
 | `nodal_run.py` | Single-article pipeline (Wikipedia → shard) |
-| `demo_query.py` | End-to-end demo: mount → query → hallucination check |
-| `genesis/spec/v1.0/SPECIFICATION.md` | Frozen protocol definition |
-| `INVARIANTS.md` | Absolute constraints on all code changes |
-| `IDENTITY.md` | How IDs are generated and what survives rebuilds |
-| `EXTENSIONS_REGISTRY.md` | Extension parquet schemas |
-| `docs/DECISION_LOG.md` | Architecture decisions and rationale |
+| `integration_test.py` | End-to-end test: forge → genesis → verify → clarion → spectra |
+| `INVARIANTS.md` | Absolute constraints |
+| `EXTENSIONS_REGISTRY.md` | Extension Parquet schemas |
 
-## What's Frozen
+## Cryptographic suites
 
-The Genesis v1.0 specification (Sections 1-10), shard layout, Merkle computation,
-parquet schemas, and identifier generation are frozen. The gold shard is the
-definition of correctness.
+| Suite | Algorithm | Status |
+|-------|-----------|--------|
+| Ed25519 | Ed25519 | Legacy, backward compatible |
+| `axm-blake3-mldsa44` | ML-DSA-44 (FIPS 204) | Default for new shards |
 
-Section 11 (cryptographic suites) was added in v1.1.0 as a backward-compatible
-extension.
-
-Everything else — extractors, UI, query engine, encryption, registry, CLI —
-can change freely.
+Both use Blake3 for hashing. Merkle construction differs by suite: Ed25519 uses duplicate odd-leaf; axm-blake3-mldsa44 uses RFC 6962 odd-leaf promotion with domain separation. Old shards verify under new verifiers.
 
 ## License
 

@@ -33,7 +33,6 @@ from typing import Any, Dict, List, Optional, Tuple
 # Path setup
 # ---------------------------------------------------------------------------
 _root = Path(__file__).resolve().parent
-sys.path.insert(0, str(_root / "genesis" / "src"))
 sys.path.insert(0, str(_root / "forge"))
 sys.path.insert(0, str(_root))
 

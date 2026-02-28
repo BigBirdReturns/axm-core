@@ -12,7 +12,7 @@ Flow:
 7) DuckDB query returns claims
 
 Assumptions:
-- You have installed Genesis as a package OR you set PYTHONPATH to include genesis/src
+- You have installed axm-genesis: `pip install axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@v1.2.0`
 - You have installed clarion-v2.0.0 (GraphKDF) OR you set PYTHONPATH accordingly
 - Required deps: blake3, cryptography, pyarrow (or your local Genesis build includes them)
 """
@@ -115,9 +115,9 @@ def main() -> int:
         return 2
 
     trusted_key = Path(args.trusted_pubkey).resolve() if args.trusted_pubkey else (shard_dir / "sig" / "publisher.pub")
-    passed, result = verify_shard(shard_dir, trusted_key)
-    if not passed:
-        print(f"Genesis verify failed: {result}", file=sys.stderr)
+    result = verify_shard(shard_dir, trusted_key)
+    if result["status"] != "PASS":
+        print(f"Genesis verify failed: {result['errors']}", file=sys.stderr)
         return 3
     print("Genesis verify: PASS")
 
@@ -146,9 +146,9 @@ def main() -> int:
         mount_target = decrypted_dir
 
         # Verify decrypted shard too
-        passed2, result2 = verify_shard(mount_target, trusted_key)
-        if not passed2:
-            print(f"Genesis verify (decrypted) failed: {result2}", file=sys.stderr)
+        result2 = verify_shard(mount_target, trusted_key)
+        if result2["status"] != "PASS":
+            print(f"Genesis verify (decrypted) failed: {result2['errors']}", file=sys.stderr)
             return 4
         print("Genesis verify (decrypted): PASS")
 

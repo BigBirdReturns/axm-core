@@ -1,10 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "axm-stack"
+name = "axm-core"
 version = "1.0.0"
-description = "AXM monorepo stack: Genesis, Forge, Clarion, Spectra, Nodal Flow"
-requires-python = ">=3.11"
+description = "AXM orchestration hub: registry, forge, and tooling surface over axm-genesis"
+readme = "README.md"
+requires-python = ">=3.10"
 dependencies = [
-  "blake3>=1.0.0",
+  # ── Protocol kernel — pinned to signed release tag ────────────────────
+  # axm-genesis is the immutable cryptographic kernel.
+  # axm-core does NOT vendor it. All axm_build / axm_verify imports
+  # resolve through this declared dependency.
+  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@v1.2.0",
+
+  # ── Core deps (transitive from genesis, re-declared for clarity) ──────
+  "blake3>=0.4.0",
   "duckdb>=1.0.0",
   "pyarrow>=14.0.0",
   "pandas>=2.0.0",
@@ -13,3 +25,24 @@ dependencies = [
   "PyNaCl>=1.5.0",
   "PyMuPDF>=1.23.0",
 ]
+
+[project.optional-dependencies]
+pq = [
+  "dilithium-py>=0.5.0",
+]
+dev = [
+  "pytest>=7.0",
+  "dilithium-py>=0.5.0",
+]
+
+# ── Package discovery ─────────────────────────────────────────────────────
+# Option A: axm-core root exposes only the registry package.
+# forge, spectra, and clarion are separate install targets
+# (each has its own pyproject.toml under their subdirectory).
+# Install them separately: pip install -e ./forge  pip install -e ./clarion
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["registry*"]

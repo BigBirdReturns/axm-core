@@ -29,7 +29,6 @@ from pathlib import Path
 # Path setup: make the monorepo importable
 # ---------------------------------------------------------------------------
 _root = Path(__file__).resolve().parent
-sys.path.insert(0, str(_root / "genesis" / "src"))
 sys.path.insert(0, str(_root / "forge"))
 sys.path.insert(0, str(_root))
 
