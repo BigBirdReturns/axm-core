@@ -823,6 +823,8 @@ def compile_shard(
     namespace: str,
     title: str,
     suite: str = "axm-blake3-mldsa44",
+    supersedes: tuple = (),
+    domain_hints: str = "",
 ) -> bool:
     """Compile candidates into a signed Genesis shard."""
     from axm_build.compiler_generic import CompilerConfig, compile_generic_shard
@@ -870,6 +872,8 @@ def compile_shard(
         namespace=namespace,
         created_at=now,
         suite=suite,
+        supersedes=supersedes,
+        domain_hints=domain_hints,
     )
 
     return compile_generic_shard(cfg)
@@ -889,6 +893,8 @@ def run_pipeline(
     llm_host: str = "http://127.0.0.1:11434",
     skip_llm: bool = False,
     plan_only: bool = False,
+    domain_hints: str = "",
+    supersedes: tuple = (),
 ) -> bool:
     """Full ingestion pipeline: documents → signed shard."""
 
@@ -961,19 +967,50 @@ def run_pipeline(
             namespace=namespace,
             title=title,
             suite=suite,
+            supersedes=supersedes,
+            domain_hints=domain_hints,
         )
         dt = time.time() - t0
         if ok:
             log(f"\n  ✓ Shard compiled and verified ({dt:.1f}s)", "ok")
             log(f"  Location: {shard_dir}", "ok")
 
+            # ── Post-compile derivation pass ──────────────────────────────
+            # Runs after Genesis compilation so derivation reads the real
+            # compiled claim IDs from graph/claims.parquet.
+            log(f"\n  Running derivation passes...", "stage")
+
+            try:
+                sys.path.insert(0, str(_root / "forge"))
+                from axm_forge.derivation.coords import run_coords_pass
+                coords_result = run_coords_pass(shard_dir)
+                if coords_result.get("written"):
+                    log(f"  coords@1: {coords_result['rows']} entities classified", "ok")
+                else:
+                    log(f"  coords@1: skipped ({coords_result.get('reason', 'no entities')})", "dim")
+            except Exception as e:
+                log(f"  coords@1: failed ({e})", "warn")
+
+            try:
+                from axm_forge.derivation.temporal import run_temporal_pass
+                temporal_result = run_temporal_pass(candidates_path, shard_dir)
+                if temporal_result.get("written"):
+                    log(f"  temporal@1: {temporal_result['temporal_rows']} temporal claims", "ok")
+                else:
+                    log(f"  temporal@1: skipped (no temporal claims detected)", "dim")
+            except Exception as e:
+                log(f"  temporal@1: failed ({e})", "warn")
+
             # Show summary
             manifest = json.loads((shard_dir / "manifest.json").read_text())
             stats = manifest.get("statistics", {})
+            extensions = manifest.get("extensions", [])
             log(f"\n  Shard: {manifest.get('metadata', {}).get('title', 'unknown')}", "info")
             log(f"  Suite: {manifest.get('suite', 'ed25519')}", "info")
             log(f"  Entities: {stats.get('entities', '?')}", "info")
             log(f"  Claims:   {stats.get('claims', '?')}", "info")
+            if extensions:
+                log(f"  Extensions: {', '.join(extensions)}", "info")
             log(f"  Merkle:   {manifest.get('integrity', {}).get('merkle_root', '?')[:32]}...", "info")
             return True
         else:
@@ -1016,6 +1053,9 @@ Examples:
     p.add_argument("--llm-host", default=None, help="Ollama host URL")
     p.add_argument("--skip-llm", action="store_true", help="Skip tier 3 LLM extraction")
     p.add_argument("--plan-only", action="store_true", help="Show plan without running")
+    p.add_argument("--domain-hints", default="", help="Domain context injected into tier 2/3 LLM prompt")
+    p.add_argument("--supersedes", nargs="*", default=[], metavar="SHARD_ID",
+                   help="Shard IDs this build supersedes (emits ext/lineage@1.parquet)")
 
     args = p.parse_args()
 
@@ -1032,6 +1072,8 @@ Examples:
         llm_host=host,
         skip_llm=args.skip_llm,
         plan_only=args.plan_only,
+        domain_hints=args.domain_hints,
+        supersedes=tuple(args.supersedes),
     )
 
     sys.exit(0 if ok else 1)

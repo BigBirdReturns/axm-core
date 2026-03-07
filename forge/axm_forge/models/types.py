@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Literal
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Literal
 
 ArtifactKind = Literal["extracted_text", "ocr_text", "native_text"]
 
@@ -17,7 +17,7 @@ class TextSpan:
         if self.end > len(text):
             raise ValueError(f"Span end {self.end} exceeds text length {len(text)}")
 
-LocatorKind = Literal["pdf", "docx", "html", "txt", "pptx", "xlsx", "test"]
+LocatorKind = Literal["pdf", "docx", "html", "txt", "pptx", "xlsx", "legal", "test"]
 
 @dataclass(frozen=True)
 class Locator:
@@ -36,15 +36,17 @@ class Locator:
             "block_id": self.block_id,
         }
 
-ChunkType = Literal["prose", "table", "list", "heading"]
+# ChunkType is open-ended for domain extensions (legal_section, legal_verbatim, etc.)
+ChunkType = str
 
-@dataclass(frozen=True)
+@dataclass
 class Chunk:
     chunk_id: str
     chunk_type: ChunkType
     locator: Locator
     text_span: TextSpan
     text: str
+    meta: Dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> None:
         self.text_span.validate(self.text)

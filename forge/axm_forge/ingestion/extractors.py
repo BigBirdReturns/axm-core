@@ -311,6 +311,441 @@ def extract_json(path: Path) -> ExtractedDocument:
     return ExtractedDocument(blocks=[block], source_path=str(path), format="json")
 
 
+def _flatten_openai_tree(mapping: dict) -> list[dict]:
+    """Flatten a ChatGPT mapping/tree into an ordered message list.
+
+    Strategy:
+    1. Find the root node (no parent, or parent not in mapping).
+    2. Walk the canonical branch: at each node take the LAST child
+       (ChatGPT appends regenerated/edited responses as later children —
+       the last child is the current/accepted branch).
+    3. Sort sibling groups by create_time before choosing, so the order
+       is deterministic even if mapping dict order varies across exports.
+
+    Result is chronological, canonical-branch order — the same sequence
+    a user would read in the ChatGPT UI.
+    """
+    from datetime import datetime, timezone as _tz
+
+    def _ts(node: dict) -> float:
+        msg = node.get("message") or {}
+        raw = msg.get("create_time")
+        try:
+            return float(raw) if raw is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _msg_text(msg: dict) -> str:
+        content = msg.get("content") or {}
+        if isinstance(content, dict) and "parts" in content:
+            return "\n".join(str(p) for p in content["parts"] if p)
+        if isinstance(content, str):
+            return content
+        return ""
+
+    def _iso(ts_raw) -> str:
+        if not ts_raw:
+            return ""
+        try:
+            return datetime.fromtimestamp(
+                float(ts_raw), tz=_tz.utc
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            return str(ts_raw)
+
+    # Find root: node whose parent is None or not present in mapping
+    root_id = None
+    for nid, node in mapping.items():
+        parent = node.get("parent")
+        if parent is None or parent not in mapping:
+            root_id = nid
+            break
+    if root_id is None:
+        # Fallback: pick node with lowest create_time
+        root_id = min(mapping, key=lambda nid: _ts(mapping[nid]))
+
+    messages: list[dict] = []
+    current_id: str | None = root_id
+
+    while current_id is not None:
+        node = mapping.get(current_id)
+        if node is None:
+            break
+
+        msg = node.get("message")
+        if msg:
+            text = _msg_text(msg).strip()
+            if text:
+                author  = (msg.get("author") or {}).get("role", "unknown")
+                ts_raw  = msg.get("create_time")
+                msg_id  = msg.get("id") or current_id
+                messages.append({
+                    "role":      author,
+                    "content":   text,
+                    "timestamp": _iso(ts_raw),
+                    "id":        msg_id,
+                })
+
+        children = node.get("children") or []
+        if not children:
+            break
+
+        # Sort children by create_time; take the last (most recent / accepted branch)
+        children_sorted = sorted(
+            children,
+            key=lambda cid: _ts(mapping.get(cid, {}))
+        )
+        current_id = children_sorted[-1]
+
+    return messages
+
+
+def _is_generic_chat(data: Any) -> bool:
+    """Detect a generic chat format: array of objects with 'messages' containing
+    dicts with 'role' and 'content'. Covers most local LLM UI exports
+    (LM Studio, OpenWebUI, Ollama UIs, etc.) that aren't ChatGPT-specific.
+    """
+    if not isinstance(data, list) or not data:
+        return False
+    first = data[0]
+    if not isinstance(first, dict):
+        return False
+    msgs = first.get("messages")
+    if not isinstance(msgs, list) or not msgs:
+        return False
+    m = msgs[0]
+    return isinstance(m, dict) and "role" in m and ("content" in m or "text" in m)
+
+
+def _extract_generic_chat(data: list, path: Path) -> ExtractedDocument:
+    """Handle generic chat format used by most local LLM UIs.
+
+    Accepts any array of {messages: [{role, content|text, ...}]} objects.
+    Falls back gracefully when timestamps or IDs are absent.
+    """
+    blocks: list[DocumentBlock] = []
+    tier0: list[dict] = []
+
+    for conv_idx, conv in enumerate(data):
+        conv_id    = conv.get("id") or conv.get("uuid") or conv.get("conversation_id") \
+                     or f"conv_{conv_idx}"
+        conv_title = (conv.get("title") or conv.get("name") or "Untitled").strip()
+        created_at = _normalize_timestamp(str(conv.get("created_at") or conv.get("create_time") or ""))
+        messages   = conv.get("messages") or []
+
+        tier0.extend(_tier0_meta(conv_id, conv_idx, conv_title,
+                                 created_at, len(messages), path))
+
+        header_text = f"=== CONVERSATION: {conv_title} ==="
+        if created_at:
+            header_text += f" [{created_at}]"
+        blocks.append(DocumentBlock(
+            text=header_text,
+            locator=_meta_locator(conv_id, conv_idx, created_at, path),
+        ))
+
+        for turn_idx, msg in enumerate(messages):
+            role = (msg.get("role") or "unknown").lower()
+            raw  = (msg.get("content") or msg.get("text") or "").strip()
+            ts   = _normalize_timestamp(str(msg.get("timestamp") or msg.get("create_time") or ""))
+
+            if not raw:
+                continue
+
+            norm_role  = "human"     if role in ("user", "human") else \
+                         "assistant" if role == "assistant" else \
+                         "system"    if role == "system" else role
+            role_label = {"human": "HUMAN", "assistant": "ASSISTANT",
+                          "system": "SYSTEM"}.get(norm_role, norm_role.upper())
+            ts_suffix  = f" [{ts}]" if ts else ""
+
+            blocks.append(DocumentBlock(
+                text=f"{role_label}{ts_suffix}:\n{raw}",
+                locator={
+                    "kind":             "chat",
+                    "conversation_id":  conv_id,
+                    "conversation_idx": conv_idx,
+                    "turn_index":       turn_idx,
+                    "role":             norm_role,
+                    "timestamp":        ts,
+                    "message_id":       msg.get("id") or msg.get("uuid") or f"{conv_id}:{turn_idx}",
+                    "file_path":        str(path),
+                },
+            ))
+
+    return ExtractedDocument(
+        blocks=blocks,
+        source_path=str(path),
+        format="chat_generic",
+        tier0_candidates=tier0 if tier0 else None,
+        metadata={
+            "conversation_count": len(data),
+            "total_turns": sum(1 for b in blocks if b.locator.get("role") != "meta"),
+        },
+    )
+
+
+def _is_claude_export(data: Any) -> bool:
+    """Detect a Claude.ai chat export: array of conversations with chat_messages."""
+    if not isinstance(data, list) or not data:
+        return False
+    first = data[0]
+    return isinstance(first, dict) and "chat_messages" in first and "uuid" in first
+
+
+def _is_openai_export(data: Any) -> bool:
+    """Detect a ChatGPT export: array or dict with messages [{role, content}]."""
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict) and "mapping" in first:
+            return True  # ChatGPT conversation tree format
+        if isinstance(first, dict) and "messages" in first:
+            msgs = first.get("messages", [])
+            return bool(msgs) and isinstance(msgs[0], dict) and "role" in msgs[0]
+    return False
+
+
+def _normalize_timestamp(ts: str) -> str:
+    """Return ISO timestamp or empty string."""
+    if not ts:
+        return ""
+    # Already ISO — strip microseconds for readability
+    return ts.replace(".000000+00:00", "Z").replace("+00:00", "Z")
+
+
+def extract_chat_json(path: Path) -> ExtractedDocument:
+    """
+    Conversation-aware extractor for LLM chat exports.
+
+    Supports:
+        Claude.ai export  — array of {uuid, name, created_at, chat_messages: [{uuid, text, sender, created_at}]}
+        ChatGPT export    — array of {title, create_time, messages: [{role, content}]}
+                           or conversation tree format with "mapping"
+
+    Output:
+        blocks           — one DocumentBlock per message turn, locator carries full turn metadata
+        tier0_candidates — one per conversation: title, started_at, message_count, participant roles
+        full_text        — linearized transcript usable as source.txt
+
+    Locator shape (dict):
+        {
+            "kind":            "chat",
+            "conversation_id": str,
+            "conversation_idx": int,    # index in the export file (0-based)
+            "turn_index":      int,
+            "role":            "human" | "assistant" | "system",
+            "timestamp":       ISO str,
+            "file_path":       str,
+        }
+    """
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Fall back to generic JSON
+        return extract_json(path)
+
+    if _is_claude_export(data):
+        return _extract_claude_export(data, path)
+    elif _is_openai_export(data):
+        return _extract_openai_export(data, path)
+    elif _is_generic_chat(data):
+        return _extract_generic_chat(data, path)
+    else:
+        return extract_json(path)
+
+
+def _meta_locator(conv_id: str, conv_idx: int, created_at: str, path: Path) -> dict:
+    return {"kind": "chat", "conversation_id": conv_id, "conversation_idx": conv_idx,
+            "turn_index": -1, "role": "meta", "timestamp": created_at, "file_path": str(path)}
+
+
+def _tier0_meta(conv_id: str, conv_idx: int, conv_title: str,
+                created_at: str, message_count: int, path: Path) -> list:
+    """Tier-0 candidates for conversation metadata — shared by Claude and OpenAI paths."""
+    meta_ev = f"Conversation: {conv_title}" + (f" (started {created_at})" if created_at else "")
+    loc = _meta_locator(conv_id, conv_idx, created_at, path)
+    rows = [
+        {"subject": conv_id, "predicate": "conversation_title", "object": conv_title,
+         "object_type": "literal:string", "tier": 0, "confidence": 1.0,
+         "evidence": meta_ev, "locator": loc},
+        {"subject": conv_id, "predicate": "message_count", "object": str(message_count),
+         "object_type": "literal:string", "tier": 0, "confidence": 1.0,
+         "evidence": f"{conv_title}: {message_count} messages", "locator": loc},
+    ]
+    if created_at:
+        rows.insert(1, {
+            "subject": conv_id, "predicate": "started_at", "object": created_at,
+            "object_type": "literal:string", "tier": 0, "confidence": 1.0,
+            "evidence": meta_ev, "locator": loc,
+        })
+    return rows
+
+
+def _extract_claude_export(conversations: list, path: Path) -> ExtractedDocument:
+    """Handle Claude.ai export format.
+
+    Each block's text is prefixed with role and timestamp so that
+    ExtractedDocument.full_text (which joins block texts) produces a
+    readable, evidence-anchored transcript for source.txt.
+    """
+    blocks: list[DocumentBlock] = []
+    tier0: list[dict] = []
+
+    for conv_idx, conv in enumerate(conversations):
+        conv_id    = conv.get("uuid", f"conv_{conv_idx}")
+        conv_title = (conv.get("name") or "Untitled").strip()
+        created_at = _normalize_timestamp(conv.get("created_at", ""))
+        messages   = conv.get("chat_messages", [])
+
+        # Tier-0 metadata candidates (bypass LLM)
+        tier0.extend(_tier0_meta(conv_id, conv_idx, conv_title,
+                                 created_at, len(messages), path))
+
+        # Conversation header block — appears first in source.txt for this conv
+        header_text = f"=== CONVERSATION: {conv_title} ==="
+        if created_at:
+            header_text += f" [{created_at}]"
+        blocks.append(DocumentBlock(
+            text=header_text,
+            locator=_meta_locator(conv_id, conv_idx, created_at, path),
+        ))
+
+        for turn_idx, msg in enumerate(messages):
+            sender = (msg.get("sender") or "unknown").lower()
+            raw    = (msg.get("text") or "").strip()
+            ts     = _normalize_timestamp(msg.get("created_at", ""))
+            msg_id = msg.get("uuid", f"{conv_id}:{turn_idx}")
+
+            if not raw:
+                continue
+
+            role       = "human"     if sender in ("human", "user") else \
+                         "assistant" if sender in ("assistant", "claude") else sender
+            role_label = {"human": "HUMAN", "assistant": "ASSISTANT"}.get(
+                role, role.upper()  # unknown roles get their raw name uppercased
+            )
+            ts_suffix  = f" [{ts}]" if ts else ""
+
+            # Prefix the message text — this is what flows into source.txt
+            # The evidence span for any claim extracted from this turn will
+            # point into this prefixed string, keeping quotes verifiable.
+            prefixed = f"{role_label}{ts_suffix}:\n{raw}"
+
+            blocks.append(DocumentBlock(
+                text=prefixed,
+                locator={
+                    "kind":             "chat",
+                    "conversation_id":  conv_id,
+                    "conversation_idx": conv_idx,
+                    "turn_index":       turn_idx,
+                    "role":             role,
+                    "timestamp":        ts,
+                    "message_id":       msg_id,
+                    "file_path":        str(path),
+                },
+            ))
+
+    return ExtractedDocument(
+        blocks=blocks,
+        source_path=str(path),
+        format="chat_claude",
+        tier0_candidates=tier0 if tier0 else None,
+        metadata={
+            "conversation_count": len(conversations),
+            "total_turns": sum(1 for b in blocks if b.locator.get("role") not in ("meta",)),
+        },
+    )
+
+
+def _extract_openai_export(data: list, path: Path) -> ExtractedDocument:
+    """Handle ChatGPT export format (flat messages list and mapping/tree formats).
+
+    Each block's text is prefixed with role and timestamp, same as the Claude path,
+    so full_text produces a canonical transcript for source.txt.
+    """
+    blocks: list[DocumentBlock] = []
+    tier0: list[dict] = []
+
+    for conv_idx, conv in enumerate(data):
+        conv_id    = conv.get("id") or conv.get("conversation_id") or f"conv_{conv_idx}"
+        conv_title = (conv.get("title") or "Untitled").strip()
+        create_ts  = ""
+        raw_ts     = conv.get("create_time") or conv.get("created_at") or ""
+        if raw_ts:
+            try:
+                from datetime import datetime, timezone
+                create_ts = datetime.fromtimestamp(
+                    float(raw_ts), tz=timezone.utc
+                ).strftime("%Y-%m-%dT%H:%M:%SZ") if isinstance(raw_ts, (int, float)) \
+                    else _normalize_timestamp(str(raw_ts))
+            except Exception:
+                create_ts = str(raw_ts)
+
+        # Flatten messages — handle both list and mapping/tree formats
+        messages: list[dict] = []
+        if "messages" in conv and isinstance(conv["messages"], list):
+            messages = conv["messages"]
+        elif "mapping" in conv:
+            messages = _flatten_openai_tree(conv["mapping"])
+
+        # Tier-0 metadata (parity with Claude path)
+        tier0.extend(_tier0_meta(conv_id, conv_idx, conv_title,
+                                 create_ts, len(messages), path))
+
+        # Conversation header block
+        header_text = f"=== CONVERSATION: {conv_title} ==="
+        if create_ts:
+            header_text += f" [{create_ts}]"
+        blocks.append(DocumentBlock(
+            text=header_text,
+            locator=_meta_locator(conv_id, conv_idx, create_ts, path),
+        ))
+
+        for turn_idx, msg in enumerate(messages):
+            role    = (msg.get("role") or "unknown").lower()
+            raw     = (msg.get("content") or msg.get("text") or "").strip()
+            ts      = msg.get("timestamp") or ""
+
+            if not raw:
+                continue
+
+            # Keep system messages — they may carry important constraints.
+            # Label them explicitly so they're visible in source.txt.
+            norm_role  = "human"     if role in ("user", "human") else \
+                         "assistant" if role == "assistant" else \
+                         "system"    if role == "system" else role
+            role_label = {"human": "HUMAN", "assistant": "ASSISTANT",
+                          "system": "SYSTEM"}.get(norm_role, norm_role.upper())
+            ts_suffix  = f" [{ts}]" if ts else ""
+            prefixed   = f"{role_label}{ts_suffix}:\n{raw}"
+
+            blocks.append(DocumentBlock(
+                text=prefixed,
+                locator={
+                    "kind":             "chat",
+                    "conversation_id":  conv_id,
+                    "conversation_idx": conv_idx,
+                    "turn_index":       turn_idx,
+                    "role":             norm_role,
+                    "timestamp":        ts,
+                    "message_id":       msg.get("id") or msg.get("uuid") or f"{conv_id}:{turn_idx}",
+                    "file_path":        str(path),
+                },
+            ))
+
+    return ExtractedDocument(
+        blocks=blocks,
+        source_path=str(path),
+        format="chat_openai",
+        tier0_candidates=tier0 if tier0 else None,
+        metadata={
+            "conversation_count": len(data),
+            "total_turns": sum(1 for b in blocks if b.locator.get("role") not in ("meta",)),
+        },
+    )
+
+
 def extract_xml(path: Path) -> ExtractedDocument:
     raw = path.read_text(encoding="utf-8", errors="replace")
     text = re.sub(r"<[^>]+>", " ", raw)
@@ -537,7 +972,7 @@ _EXTRACTORS = {
     ".xlsx": extract_xlsx, ".xls": extract_xlsx,
     ".pptx": extract_pptx,
     ".csv": extract_csv, ".tsv": extract_csv,
-    ".json": extract_json, ".jsonl": extract_json,
+    ".json": extract_chat_json, ".jsonl": extract_json,
     ".xml": extract_xml,
     ".xbrl": extract_xbrl,
     ".ics": extract_ical, ".ical": extract_ical,

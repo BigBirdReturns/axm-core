@@ -419,6 +419,11 @@ class SpectraEngine:
                 self._mount_specs[mount_id] = spec
                 self._claims[mount_id] = claims_for_mount
 
+                # Rebuild cross-shard union views so queries can reference
+                # bare table names (claims, entities, temporal, lineage, refs)
+                # rather than per-shard view names.
+                self._rebuild_union_views()
+
                 # Persist to catalog.
                 self.catalog.upsert_mount(
                     mount_id=mount_id,
@@ -468,6 +473,51 @@ class SpectraEngine:
             "verify": {"status": "ok"} if verify else None,
         }
 
+    def _rebuild_union_views(self) -> None:
+        """Rebuild cross-shard union views after any mount/unmount.
+
+        Creates bare table names (claims, entities, temporal, lineage, refs,
+        provenance, spans) as UNION ALL across all mounted shards.
+
+        nlquery.py references these bare names in JOINs, so they must exist
+        and be current whenever shards are added or removed.
+        """
+        # Core tables — present in every shard
+        core_tables = [
+            ("claims",     "claims"),
+            ("entities",   "entities"),
+            ("provenance", "provenance"),
+            ("spans",      "spans"),
+        ]
+        # Ext tables — optional, present only in shards that have them
+        ext_tables = [
+            ("temporal", "ext_temporal"),
+            ("lineage",  "ext_lineage"),
+            ("refs",     "ext_references"),
+        ]
+
+        all_views = {v for s in self._mount_specs.values() for v in s.tables}
+
+        for bare_name, prefix in core_tables:
+            parts = [f'SELECT * FROM {quote_ident(v)}'
+                     for v in sorted(all_views)
+                     if v.startswith(f"{prefix}__")]
+            self.con.execute(f"DROP VIEW IF EXISTS {quote_ident(bare_name)}")
+            if parts:
+                self.con.execute(
+                    f"CREATE VIEW {quote_ident(bare_name)} AS {' UNION ALL '.join(parts)}"
+                )
+
+        for bare_name, prefix in ext_tables:
+            parts = [f'SELECT * FROM {quote_ident(v)}'
+                     for v in sorted(all_views)
+                     if v.startswith(f"{prefix}__")]
+            self.con.execute(f"DROP VIEW IF EXISTS {quote_ident(bare_name)}")
+            if parts:
+                self.con.execute(
+                    f"CREATE VIEW {quote_ident(bare_name)} AS {' UNION ALL '.join(parts)}"
+                )
+
     def unmount(self, mount_id: str, token_hash: Optional[str] = None) -> None:
         with self._lock:
             spec = self._mount_specs.pop(mount_id, None)
@@ -481,6 +531,9 @@ class SpectraEngine:
             temp_dir = self._mount_dirs.pop(mount_id, None)
             if temp_dir and temp_dir.exists():
                 shutil.rmtree(temp_dir)
+
+            # Rebuild union views to exclude the unmounted shard
+            self._rebuild_union_views()
 
             self.catalog.set_mount_stopped(mount_id)
             self.catalog.log_system_event("unmount", details={"mount_id": mount_id})
