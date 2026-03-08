@@ -4,19 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "axm-core"
-version = "1.0.0"
-description = "AXM orchestration hub: registry, forge, and tooling surface over axm-genesis"
+version = "1.1.0"
+description = "AXM orchestration hub: CLI host, Forge ingestion, Spectra query engine"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
-  # ── Protocol kernel — pinned to signed release tag ────────────────────
-  # axm-genesis is the immutable cryptographic kernel.
-  # axm-core does NOT vendor it. All axm_build / axm_verify imports
-  # resolve through this declared dependency.
+  # ── Protocol kernel ────────────────────────────────────────────────────────
   "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@v1.2.0",
 
-  # ── Core deps (transitive from genesis, re-declared for clarity) ──────
+  # ── Core deps ─────────────────────────────────────────────────────────────
   "blake3>=0.4.0",
   "duckdb>=1.0.0",
   "pyarrow>=14.0.0",
@@ -36,14 +33,26 @@ dev = [
   "dilithium-py>=0.5.0",
 ]
 
-# ── Package discovery ─────────────────────────────────────────────────────
-# Option A: axm-core root exposes only the registry package.
-# forge, spectra, and clarion are separate install targets
-# (each has its own pyproject.toml under their subdirectory).
-# Install them separately: pip install -e ./forge  pip install -e ./clarion
+# ── Entry points ──────────────────────────────────────────────────────────────
+# `axm` is the unified CLI host.  Spokes attach via axm.spokes entry-point group.
+# `axm-forge` is the ingestion CLI, kept as its own command for direct use.
+[project.scripts]
+axm       = "axm_core.cli:main"
+axm-forge = "axm_forge.cli.main:main"
+
+# ── Package discovery ─────────────────────────────────────────────────────────
+# axm-core owns:
+#   axm_core/        the CLI host and plugin discovery (src/axm_core/)
+#   axm_forge/       ingestion + extraction (forge/axm_forge/)
+#   axiom_runtime/   Spectra query engine (spectra/axiom_runtime/)
+#
+# clarion is a separate install target (clarion/pyproject.toml) because it has
+# its own crypto deps (graphkdf) that not all users need.
+#
+# Setuptools resolves packages from multiple source roots via package-dir.
 [tool.setuptools]
-package-dir = {"" = "."}
+package-dir = {"" = ".", "axm_core" = "src/axm_core", "axm_forge" = "forge/axm_forge", "axiom_runtime" = "spectra/axiom_runtime"}
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["registry*"]
+where = [".", "forge", "spectra", "src"]
+include = ["axm_core*", "axm_forge*", "axiom_runtime*"]
