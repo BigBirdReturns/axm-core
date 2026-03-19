@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>axm-core — Query Runtime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Sans:wght@300;400;500&family=Barlow+Condensed:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:           #0d1117;
+  --bg-1:         #161b22;
+  --bg-2:         #1c2330;
+  --bg-3:         #21262d;
+  --steel:        #8b949e;
+  --steel-dim:    #484f58;
+  --steel-faint:  #2d333b;
+  --cyan:         #39d0d8;
+  --cyan-dim:     #1b6b70;
+  --cyan-glow:    rgba(57,208,216,0.12);
+  --cyan-border:  rgba(57,208,216,0.25);
+  --white:        #e6edf3;
+  --white-dim:    #8b949e;
+  --white-faint:  #30363d;
+  --rule:         #21262d;
+  --rule-strong:  #30363d;
+  --green:        #3fb950;
+  --green-dim:    rgba(63,185,80,0.15);
+  --amber:        #d29922;
+  --amber-dim:    rgba(210,153,34,0.15);
+  --red:          #f85149;
+  --font-mono:    'IBM Plex Mono', monospace;
+  --font-sans:    'IBM Plex Sans', sans-serif;
+  --font-cond:    'Barlow Condensed', sans-serif;
+    --eco-bg:       #0d1117;
+    --eco-border:   #21262d;
+    --eco-text:     #8b949e;
+    --eco-text-hi:  #e6edf3;
+    --eco-accent:   #39d0d8;
+    --eco-mono:     'JetBrains Mono', monospace;
+  }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ── Scan line overlay ─────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Circuit trace decoration ──────────────────────────── */
+.trace-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  opacity: 0.04;
+}
+.trace-bg svg { width: 100%; height: 100%; }
+
+/* ── NAV ───────────────────────────────────────────────── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(13,17,23,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 44px;
+  overflow-x: auto;
+}
+nav::-webkit-scrollbar { display: none; }
+
+.nav-brand {
+  font-family: var(--font-cond);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-right: 32px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nav-brand span { color: var(--steel); font-weight: 300; }
+
+nav a {
+  color: var(--steel);
+  text-decoration: none;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 0 14px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  transition: color 0.15s;
+  border-bottom: 2px solid transparent;
+}
+nav a:hover { color: var(--white); }
+nav a.active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
+
+/* ── HERO ──────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  z-index: 1;
+  padding: 80px 64px 72px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: linear-gradient(180deg, rgba(57,208,216,0.03) 0%, transparent 100%);
+  overflow: hidden;
+}
+
+.hero-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hero-label::before {
+  content: '';
+  display: inline-block;
+  width: 24px;
+  height: 1px;
+  background: var(--cyan);
+}
+
+h1 {
+  font-family: var(--font-cond);
+  font-size: clamp(52px, 9vw, 112px);
+  font-weight: 700;
+  line-height: 0.92;
+  letter-spacing: -0.01em;
+  color: var(--white);
+  text-transform: uppercase;
+  margin-bottom: 32px;
+}
+h1 em {
+  font-style: normal;
+  color: var(--cyan);
+  display: block;
+}
+
+.hero-sub {
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 300;
+  color: var(--white-dim);
+  max-width: 560px;
+  line-height: 1.65;
+  margin-bottom: 48px;
+}
+
+.hero-stats {
+  display: flex;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-val {
+  font-family: var(--font-cond);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--white);
+  letter-spacing: 0.02em;
+}
+.stat-val span { color: var(--cyan); }
+.stat-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--steel);
+  text-transform: uppercase;
+}
+
+/* Hero corner decoration */
+.hero-corner {
+  position: absolute;
+  top: 40px;
+  right: 64px;
+  opacity: 0.06;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--cyan);
+  line-height: 1.8;
+  letter-spacing: 0.05em;
+  text-align: right;
+  pointer-events: none;
+}
+
+/* ── SECTION BASE ──────────────────────────────────────── */
+section {
+  position: relative;
+  z-index: 1;
+  padding: 72px 64px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sec-label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+.sec-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  color: var(--cyan-dim);
+  text-transform: uppercase;
+}
+.sec-num::after {
+  content: '';
+  display: inline-block;
+  width: 48px;
+  height: 1px;
+  background: var(--steel-faint);
+  margin-left: 12px;
+  vertical-align: middle;
+}
+.sec-title {
+  font-family: var(--font-cond);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.25em;
+  color: var(--steel);
+  text-transform: uppercase;
+}
+
+h2 {
+  font-family: var(--font-cond);
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  color: var(--white);
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+p {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--white-dim);
+  line-height: 1.75;
+  max-width: 680px;
+  margin-bottom: 16px;
+}
+p:last-child { margin-bottom: 0; }
+
+/* ── WHAT CORE DOES ────────────────────────────────────── */
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--rule-strong);
+  border: 1px solid var(--rule-strong);
+  margin-top: 48px;
+}
+.role-card {
+  background: var(--bg-1);
+  padding: 32px 28px;
+  transition: background 0.2s;
+}
+.role-card:hover { background: var(--bg-2); }
+.role-icon {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: var(--cyan);
+  margin-bottom: 16px;
+  display: block;
+}
+.role-name {
+  font-family: var(--font-cond);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--white);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.role-desc {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--steel);
+  line-height: 1.65;
+  max-width: none;
+  margin-bottom: 0;
+}
+
+/* ── SPECTRA ───────────────────────────────────────────── */
+.spectra-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  align-items: start;
+  margin-top: 48px;
+}
+
+.spectra-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.flow-step {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--rule);
+  position: relative;
+}
+.flow-step:last-child { border-bottom: none; }
+.flow-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.flow-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  flex-shrink: 0;
+}
+.flow-line {
+  width: 1px;
+  flex: 1;
+  background: linear-gradient(180deg, var(--cyan-dim), transparent);
+  min-height: 24px;
+  margin-top: 4px;
+}
+.flow-step:last-child .flow-line { display: none; }
+.flow-body {}
+.flow-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.flow-name {
+  font-family: var(--font-cond);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--white);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.flow-desc {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--steel);
+  line-height: 1.55;
+  max-width: none;
+  margin-bottom: 0;
+}
+
+/* ── CODE BLOCKS ───────────────────────────────────────── */
+.code-block {
+  background: var(--bg-1);
+  border: 1px solid var(--rule-strong);
+  padding: 24px 28px;
+  overflow-x: auto;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.code-block-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+.code-block-title {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--steel);
+  text-transform: uppercase;
+  margin-left: 4px;
+}
+pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  overflow-x: auto;
+}
+.c  { color: var(--steel-dim); font-style: italic; }   /* comment */
+.kw { color: var(--cyan); }                              /* keyword */
+.st { color: #a5d6ff; }                                  /* string */
+.fn { color: #d2a8ff; }                                  /* function */
+.op { color: var(--white-dim); }                         /* operator */
+.pa { color: var(--amber); }                             /* path */
+.nu { color: #79c0ff; }                                  /* number */
+.ok { color: var(--green); }                             /* success */
+.er { color: var(--red); }                               /* error */
+.hl { color: var(--white); }                             /* highlight */
+
+/* ── QUERY EXAMPLES ────────────────────────────────────── */
+.query-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rule-strong);
+  border: 1px solid var(--rule-strong);
+  margin-top: 48px;
+}
+.query-card {
+  background: var(--bg-1);
+  padding: 28px;
+}
+.query-input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--white);
+  margin-bottom: 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.query-prompt {
+  color: var(--cyan);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.query-sql {
+  background: var(--bg);
+  border-left: 2px solid var(--steel-faint);
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--steel);
+  font-family: var(--font-mono);
+  line-height: 1.65;
+  overflow-x: auto;
+}
+.query-result {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--green);
+  font-family: var(--font-mono);
+}
+
+/* ── FORGE ─────────────────────────────────────────────── */
+.forge-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  align-items: start;
+  margin-top: 48px;
+}
+
+.forge-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.pipeline-step {
+  display: flex;
+  gap: 0;
+}
+.pipeline-num {
+  font-family: var(--font-cond);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--cyan-dim);
+  width: 32px;
+  flex-shrink: 0;
+  padding-top: 18px;
+}
+.pipeline-content {
+  flex: 1;
+  border-left: 1px solid var(--steel-faint);
+  padding: 16px 0 16px 24px;
+}
+.pipeline-step:last-child .pipeline-content {
+  border-left-color: transparent;
+}
+.pipeline-name {
+  font-family: var(--font-cond);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--white);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.pipeline-desc {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--steel);
+  line-height: 1.55;
+  max-width: none;
+  margin-bottom: 0;
+}
+.pipeline-output {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--cyan-dim);
+  margin-top: 8px;
+  letter-spacing: 0.05em;
+}
+
+/* ── DUCKDB RUNTIME ────────────────────────────────────── */
+.duck-layout {
+  margin-top: 48px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+}
+
+/* ── QUICK START ───────────────────────────────────────── */
+.install-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 48px;
+}
+.install-card {
+  background: var(--bg-1);
+  border: 1px solid var(--rule-strong);
+  padding: 28px;
+}
+.install-phase {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.install-phase::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--rule-strong);
+}
+
+/* ── CROSS-SHARD ───────────────────────────────────────── */
+.xshard-intro {
+  margin-bottom: 40px;
+}
+.xshard-intro p { margin-bottom: 12px; }
+
+/* ── FOOTER ────────────────────────────────────────────── */
+footer {
+  position: relative;
+  z-index: 1;
+  padding: 48px 64px;
+  border-top: 1px solid var(--rule-strong);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.footer-brand {
+  font-family: var(--font-cond);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--steel);
+  text-transform: uppercase;
+}
+.footer-links {
+  display: flex;
+  gap: 32px;
+}
+.footer-links a {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--steel-dim);
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.15s;
+}
+.footer-links a:hover { color: var(--cyan); }
+.footer-meta {
+  font-size: 11px;
+  color: var(--steel-dim);
+  letter-spacing: 0.08em;
+}
+
+/* ── RESPONSIVE ────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .hero { padding: 56px 24px 48px; }
+  section { padding: 56px 24px; }
+  footer { padding: 40px 24px; }
+  nav { padding: 0 16px; }
+  .role-grid { grid-template-columns: 1fr; }
+  .spectra-layout { grid-template-columns: 1fr; gap: 40px; }
+  .forge-layout { grid-template-columns: 1fr; gap: 40px; }
+  .duck-layout { grid-template-columns: 1fr; gap: 40px; }
+  .query-grid { grid-template-columns: 1fr; }
+  .install-grid { grid-template-columns: 1fr; }
+  .hero-corner { display: none; }
+  h1 { font-size: clamp(40px, 12vw, 80px); }
+}
+</style>
+</head>
+<body>
+<!--
+  AXM Ecosystem Nav — shared across all pages
+  
+  USAGE: Paste this block at the top of <body> in each page.
+  Set data-active to the current page's key.
+  
+  The nav reads CSS custom properties from the host page:
+    --eco-bg       (fallback: #0e0e0f)
+    --eco-border   (fallback: #2a2a2e)  
+    --eco-text     (fallback: #666)
+    --eco-text-hi  (fallback: #e0e0e0)
+    --eco-accent   (fallback: #c8a84b)
+    --eco-mono     (fallback: 'DM Mono', monospace)
+  
+  Each page sets these in its :root {} to match its palette.
+-->
+<style>
+.eco-nav {
+  position: relative;
+  z-index: 900;
+  background: var(--eco-bg, #0e0e0f);
+  border-bottom: 1px solid var(--eco-border, #2a2a2e);
+  font-family: var(--eco-mono, 'DM Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  user-select: none;
+}
+.eco-nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  gap: 6px;
+}
+.eco-nav-brand {
+  color: var(--eco-text, #666);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+.eco-nav-brand strong {
+  color: var(--eco-text-hi, #e0e0e0);
+  font-weight: 500;
+}
+.eco-nav-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--eco-border, #2a2a2e);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+.eco-nav a {
+  color: var(--eco-text, #666);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+  position: relative;
+}
+.eco-nav a:hover {
+  color: var(--eco-text-hi, #e0e0e0);
+  background: rgba(255,255,255,0.03);
+}
+.eco-nav a.eco-active {
+  color: var(--eco-accent, #c8a84b);
+}
+.eco-nav a.eco-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: var(--eco-accent, #c8a84b);
+  opacity: 0.6;
+}
+.eco-nav-kind {
+  font-size: 8px;
+  opacity: 0.5;
+  display: inline-block;
+  margin-left: 2px;
+  vertical-align: top;
+}
+.eco-nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.eco-nav-github {
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+.eco-nav-github:hover {
+  opacity: 0.8;
+}
+@media (max-width: 768px) {
+  .eco-nav-inner { 
+    overflow-x: auto; 
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .eco-nav-inner::-webkit-scrollbar { display: none; }
+  .eco-nav a { padding: 6px 7px; font-size: 9px; }
+  .eco-nav-brand { display: none; }
+}
+</style>
+
+<div class="eco-nav" data-active="core">
+  <div class="eco-nav-inner">
+    <div class="eco-nav-brand"><strong>AXM</strong> &nbsp;Protocol</div>
+    <div class="eco-nav-sep"></div>
+    <a href="https://bigbirdreturns.github.io/axm-genesis/" data-page="genesis">Genesis<span class="eco-nav-kind"> kernel</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-core/" data-page="core">Core<span class="eco-nav-kind"> hub</span></a>
+    <div class="eco-nav-sep"></div>
+    <a href="https://bigbirdreturns.github.io/axm-chat/" data-page="chat">Chat<span class="eco-nav-kind"> spoke</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-show/" data-page="show">Show<span class="eco-nav-kind"> spoke</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-embodied/" data-page="embodied">Embodied<span class="eco-nav-kind"> spoke</span></a>
+    <div class="eco-nav-right">
+      <a href="https://github.com/BigBirdReturns" class="eco-nav-github" target="_blank" title="GitHub">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+// Auto-highlight active page based on data-active attribute
+(function() {
+  const nav = document.querySelector('.eco-nav');
+  if (!nav) return;
+  const active = nav.dataset.active;
+  if (active) {
+    const link = nav.querySelector(`[data-page="${active}"]`);
+    if (link) link.classList.add('eco-active');
+  }
+})();
+</script>
+
+
+<!-- Circuit trace bg -->
+<div class="trace-bg" aria-hidden="true">
+  <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
+    <g stroke="rgba(57,208,216,1)" stroke-width="1" fill="none">
+      <polyline points="0,120 180,120 180,240 480,240"/>
+      <polyline points="480,240 480,80 720,80"/>
+      <polyline points="720,80 720,320 960,320"/>
+      <polyline points="960,320 960,160 1200,160 1200,400"/>
+      <polyline points="1200,400 1440,400"/>
+      <polyline points="0,480 120,480 120,600 360,600 360,480 600,480"/>
+      <polyline points="600,480 600,720 840,720 840,560 1080,560"/>
+      <polyline points="1080,560 1080,760 1440,760"/>
+      <circle cx="180" cy="120" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="480" cy="240" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="720" cy="80" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="960" cy="320" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="1200" cy="160" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="120" cy="480" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="360" cy="600" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="600" cy="480" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="840" cy="720" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="1080" cy="560" r="3" fill="rgba(57,208,216,1)"/>
+    </g>
+  </svg>
+</div>
+
+<!-- NAV -->
+<nav id="top-nav">
+  <span class="nav-brand">AXM<span>-core</span></span>
+  <a href="#what" class="active">What</a>
+  <a href="#spectra">Spectra</a>
+  <a href="#forge">Forge</a>
+  <a href="#runtime">Runtime</a>
+  <a href="#xshard">Cross-Shard</a>
+  <a href="#queries">Query Examples</a>
+  <a href="#start">Quick Start</a>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-label">AXM · Query Runtime · v0.1</div>
+  <h1>The Hub.<em>Not Storage.<br>Not Search.<br>Structured Memory.</em></h1>
+  <p class="hero-sub">axm-core is the runtime between sealed shards and spoken questions. Spectra translates natural language to SQL. Forge compiles raw documents into shards. DuckDB executes cross-shard joins in memory. No inference at query time.</p>
+  <div class="hero-stats">
+    <div class="stat">
+      <span class="stat-val">0<span>ms</span></span>
+      <span class="stat-label">LLM latency at query</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">∞<span>+</span></span>
+      <span class="stat-label">Shards in one query</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">3</span>
+      <span class="stat-label">Core subsystems</span>
+    </div>
+  </div>
+  <div class="hero-corner" aria-hidden="true">
+    pip install -e ./axm-core<br>
+    axm-core spectra "what failed last week"<br>
+    axm-forge compile ./fm21-11.pdf<br>
+    axm-core query --all-shards<br>
+    → DuckDB · Parquet · BLAKE3
+  </div>
+</header>
+
+<!-- §01 WHAT CORE DOES -->
+<section id="what">
+  <div class="sec-label">
+    <span class="sec-num">§01</span>
+    <span class="sec-title">What Core Does</span>
+  </div>
+  <h2>Three subsystems.<br>One runtime.</h2>
+  <p>axm-core is the hub package. It neither signs shards (that's axm-genesis) nor produces them from conversations (that's a spoke). It does one thing: turns a pile of sealed Parquet shard directories into a queryable relational database, and lets you ask it questions in English.</p>
+
+  <div class="role-grid">
+    <div class="role-card">
+      <span class="role-icon">⚡</span>
+      <div class="role-name">Spectra</div>
+      <p class="role-desc">Natural language query engine. Parses intent, routes to a named query in the INTENT_ROUTES table, executes parameterized SQL against DuckDB. No LLM call at query time — the LLM runs once at distill time to build the index.</p>
+    </div>
+    <div class="role-card">
+      <span class="role-icon">⚒</span>
+      <div class="role-name">Forge</div>
+      <p class="role-desc">Document compiler. Takes PDFs, markdown, plain text, CSV, XLSX. Extracts structured claims at four tiers. Delegates signing and Merkle construction to axm-genesis via <code>compile_generic_shard</code>. Never reimplements the kernel.</p>
+    </div>
+    <div class="role-card">
+      <span class="role-icon">⬡</span>
+      <div class="role-name">DuckDB Runtime</div>
+      <p class="role-desc">The query substrate. Mounts every shard as a glob-scanned Parquet view. Union by name. Cross-shard JOINs on episode_id and claim_id. All in memory. No separate database server. No schema migrations.</p>
+    </div>
+  </div>
+</section>
+
+<!-- §02 SPECTRA -->
+<section id="spectra">
+  <div class="sec-label">
+    <span class="sec-num">§02</span>
+    <span class="sec-title">Spectra Query Engine</span>
+  </div>
+
+  <div class="spectra-layout">
+    <div>
+      <h2>Language in.<br>SQL out.<br>No LLM.</h2>
+      <p>Spectra is deliberately not a RAG system. It doesn't embed your query, search for similar chunks, and ask an LLM to synthesize them. That path is expensive and non-deterministic.</p>
+      <p>Instead: your natural language query is classified into a named intent. The intent maps to a parameterized SQL template. DuckDB executes it. The output is a result set — structured, reproducible, auditable.</p>
+      <p>The intent classifier runs locally via Ollama at distill time. At query time the only thing that runs is SQL.</p>
+    </div>
+
+    <div class="spectra-flow">
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot"></div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-tag">Input</div>
+          <div class="flow-name">Natural Language Query</div>
+          <p class="flow-desc">"What decisions have we made about the Merkle format?"</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot"></div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-tag">Intent Router</div>
+          <div class="flow-name">Keyword Classification</div>
+          <p class="flow-desc">Regex + keyword rules classify into a named intent. INTENT_ROUTES maps each intent to a SQL template. No LLM call.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot"></div>
+          <div class="flow-line"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-tag">Parameterized SQL</div>
+          <div class="flow-name">DuckDB Execution</div>
+          <p class="flow-desc">Named parameters substituted safely. Query executes against glob-mounted Parquet views. Zero injection surface.</p>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-connector">
+          <div class="flow-dot"></div>
+        </div>
+        <div class="flow-body">
+          <div class="flow-tag">Output</div>
+          <div class="flow-name">Structured Result Set</div>
+          <p class="flow-desc">Rows returned. Same query. Same shards. Same output. Always.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:48px;">
+    <div class="code-block">
+      <div class="code-block-header">
+        <div class="code-block-dot" style="background:#f85149"></div>
+        <div class="code-block-dot" style="background:#d29922"></div>
+        <div class="code-block-dot" style="background:#3fb950"></div>
+        <span class="code-block-title">spectra/query.py — intent router (v2 parameterized)</span>
+      </div>
+      <pre>
+<span class="c"># Intent routes — no raw string interpolation</span>
+<span class="kw">INTENT_ROUTES</span> = {
+  <span class="st">"decisions"</span>: {
+    <span class="st">"match"</span>: <span class="kw">lambda</span> q: <span class="st">"decision"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"decided"</span> <span class="kw">in</span> q,
+    <span class="st">"sql"</span>: <span class="st">"""
+      SELECT episode_id, decision_text, rationale, shard_id
+      FROM decisions
+      WHERE lower(decision_text) LIKE lower(:term)
+      ORDER BY created_at DESC
+    """</span>,
+    <span class="st">"params"</span>: <span class="kw">lambda</span> q: {<span class="st">"term"</span>: <span class="fn">extract_term</span>(q)},
+  },
+  <span class="st">"failures"</span>: {
+    <span class="st">"match"</span>: <span class="kw">lambda</span> q: <span class="st">"fail"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"graveyard"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"tried"</span> <span class="kw">in</span> q,
+    <span class="st">"sql"</span>: <span class="st">"""
+      SELECT episode_id, problem, graveyard, solution
+      FROM read_parquet(:glob)
+      WHERE graveyard IS NOT NULL
+      ORDER BY created_at DESC
+    """</span>,
+    <span class="st">"params"</span>: <span class="kw">lambda</span> q: {<span class="st">"glob"</span>: <span class="st">"~/.axm/shards/*/ext/engineering&#64;1.parquet"</span>},
+  },
+  <span class="c"># ... additional routes</span>
+}
+
+<span class="kw">def</span> <span class="fn">route</span>(query: <span class="kw">str</span>) -> <span class="kw">tuple</span>[<span class="kw">str</span>, <span class="kw">dict</span>]:
+    q = query.<span class="fn">lower</span>()
+    <span class="kw">for</span> name, route <span class="kw">in</span> INTENT_ROUTES.<span class="fn">items</span>():
+        <span class="kw">if</span> route[<span class="st">"match"</span>](q):
+            <span class="kw">return</span> route[<span class="st">"sql"</span>], route[<span class="st">"params"</span>](q)
+    <span class="kw">raise</span> <span class="fn">ValueError</span>(<span class="st">f"No route for: {query}"</span>)
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- §03 FORGE -->
+<section id="forge">
+  <div class="sec-label">
+    <span class="sec-num">§03</span>
+    <span class="sec-title">Forge</span>
+  </div>
+
+  <div class="forge-layout">
+    <div>
+      <h2>Documents<br>become shards.</h2>
+      <p>Forge is the document ingestion pipeline. You point it at a document. It extracts structured claim candidates at four tiers — from lossless schema lift to LLM-assisted extraction — then delegates all signing and Merkle construction to <code>compile_generic_shard</code>. Forge never reimplements the kernel.</p>
+      <p>The output is structurally identical to a chat shard. Same manifest.json. Same Parquet schema. Same verification path. Forge doesn't know it's compiling a field manual versus a legal statute versus a design document. It applies the same protocol to all of them.</p>
+    </div>
+
+    <div>
+      <div class="forge-pipeline">
+        <div class="pipeline-step">
+          <div class="pipeline-num">01</div>
+          <div class="pipeline-content">
+            <div class="pipeline-name">Parse</div>
+            <p class="pipeline-desc">Extract text blocks from PDF, markdown, or plain text. Segment into claim-sized units.</p>
+            <div class="pipeline-output">→ []str claims</div>
+          </div>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">02</div>
+          <div class="pipeline-content">
+            <div class="pipeline-name">Hash</div>
+            <p class="pipeline-desc">BLAKE3 each claim. Build Merkle tree from leaf hashes. Compute root hash.</p>
+            <div class="pipeline-output">→ merkle_root: bytes32</div>
+          </div>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">03</div>
+          <div class="pipeline-content">
+            <div class="pipeline-name">Sign</div>
+            <p class="pipeline-desc">axm-genesis signs the manifest via <code>compile_generic_shard</code>. Forge delegates — it never calls the signing primitives directly.</p>
+            <div class="pipeline-output">→ sig/manifest.sig</div>
+          </div>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">04</div>
+          <div class="pipeline-content">
+            <div class="pipeline-name">Write</div>
+            <p class="pipeline-desc">Claims written to graph/claims.parquet. Manifest written. Shard directory sealed.</p>
+            <div class="pipeline-output">→ ~/.axm/shards/&lt;shard_id&gt;/</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:48px;">
+    <div class="code-block">
+      <div class="code-block-header">
+        <div class="code-block-dot" style="background:#f85149"></div>
+        <div class="code-block-dot" style="background:#d29922"></div>
+        <div class="code-block-dot" style="background:#3fb950"></div>
+        <span class="code-block-title">Forge — compile a document</span>
+      </div>
+      <pre>
+<span class="c"># Compile a PDF into a sealed Knowledge Shard</span>
+<span class="kw">axm-forge compile</span> <span class="pa">./fm21-11-first-aid.pdf</span> \
+  <span class="op">--signing-key</span> <span class="pa">keys/publisher.pem</span> \
+  <span class="op">--shard-id</span>    <span class="st">fm21-11-hemorrhage-v1</span>
+
+<span class="c"># Output</span>
+<span class="ok">✓</span> Parsed    312 claim blocks
+<span class="ok">✓</span> Merkle    root: a3f9c2...d4e1
+<span class="ok">✓</span> Signed    ML-DSA-44 · FIPS 204
+<span class="ok">✓</span> Written   ~/.axm/shards/fm21-11-hemorrhage-v1/
+
+<span class="c"># Verify immediately</span>
+<span class="kw">axm-verify shard</span> <span class="pa">~/.axm/shards/fm21-11-hemorrhage-v1/</span> \
+  <span class="op">--trusted-key</span> <span class="pa">keys/publisher.pub</span>
+
+<span class="c"># → {"status":"PASS","error_count":0,"errors":[]}</span>
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- §04 RUNTIME -->
+<section id="runtime">
+  <div class="sec-label">
+    <span class="sec-num">§04</span>
+    <span class="sec-title">DuckDB Runtime</span>
+  </div>
+
+  <div class="duck-layout">
+    <div>
+      <h2>Every shard.<br>One database.<br>No server.</h2>
+      <p>DuckDB runs in-process. There is no separate database server to start, configure, or migrate. When a query runs, axm-core mounts every shard directory as a glob-scanned Parquet view using <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">read_parquet(glob, union_by_name=True)</code>.</p>
+      <p>New shards become queryable the moment they're written to disk. No ingestion step. No index rebuild. The glob just picks them up.</p>
+    </div>
+
+    <div class="code-block">
+      <div class="code-block-header">
+        <div class="code-block-dot" style="background:#f85149"></div>
+        <div class="code-block-dot" style="background:#d29922"></div>
+        <div class="code-block-dot" style="background:#3fb950"></div>
+        <span class="code-block-title">DuckDB mount pattern</span>
+      </div>
+      <pre>
+<span class="kw">import</span> duckdb
+
+conn = duckdb.<span class="fn">connect</span>()
+
+<span class="c"># Mount all episodes across all shards</span>
+conn.<span class="fn">execute</span>(<span class="st">"""
+  CREATE VIEW episodes AS
+    SELECT * FROM read_parquet(
+      '~/.axm/shards/*/ext/episodes&#64;1.parquet',
+      union_by_name = true
+    )
+"""</span>)
+
+<span class="c"># Mount all engineering lenses</span>
+conn.<span class="fn">execute</span>(<span class="st">"""
+  CREATE VIEW engineering AS
+    SELECT * FROM read_parquet(
+      '~/.axm/shards/*/ext/engineering&#64;1.parquet',
+      union_by_name = true
+    )
+"""</span>)
+
+<span class="c"># Cross-shard join: decisions + their lineage</span>
+conn.<span class="fn">execute</span>(<span class="st">"""
+  CREATE VIEW decisions AS
+    SELECT d.*, l.superseded_by, l.reason
+    FROM read_parquet(
+      '~/.axm/shards/*/ext/decisions&#64;1.parquet',
+      union_by_name = true
+    ) d
+    LEFT JOIN read_parquet(
+      '~/.axm/shards/*/ext/lineage&#64;1.parquet',
+      union_by_name = true
+    ) l USING (episode_id)
+"""</span>)
+
+<span class="c"># New shards are picked up automatically on next query.</span>
+<span class="c"># No re-ingestion required.</span>
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- §05 CROSS-SHARD JOINS -->
+<section id="xshard">
+  <div class="sec-label">
+    <span class="sec-num">§05</span>
+    <span class="sec-title">Cross-Shard Joins</span>
+  </div>
+
+  <div class="xshard-intro">
+    <h2>Every shard can<br>reference every other.</h2>
+    <p>The <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">references&#64;1.parquet</code> table in each decision shard carries pointers into other shards by shard_id and episode_id. DuckDB can resolve these at query time without a central registry.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;flex-wrap:wrap;">
+    <div class="code-block">
+      <div class="code-block-header">
+        <div class="code-block-dot" style="background:#f85149"></div>
+        <div class="code-block-dot" style="background:#d29922"></div>
+        <div class="code-block-dot" style="background:#3fb950"></div>
+        <span class="code-block-title">references&#64;1.parquet — schema</span>
+      </div>
+      <pre>
+<span class="c">-- One row per cross-shard link</span>
+<span class="kw">episode_id</span>        <span class="op">VARCHAR</span>   <span class="c">-- local episode</span>
+<span class="kw">target_shard_id</span>   <span class="op">VARCHAR</span>   <span class="c">-- foreign shard</span>
+<span class="kw">target_episode_id</span> <span class="op">VARCHAR</span>   <span class="c">-- foreign episode</span>
+<span class="kw">claim_text</span>        <span class="op">VARCHAR</span>   <span class="c">-- the linked claim</span>
+<span class="kw">reference_type</span>    <span class="op">VARCHAR</span>   <span class="c">-- supports | supersedes
+                            -- contradicts | cites</span>
+</pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-block-header">
+        <div class="code-block-dot" style="background:#f85149"></div>
+        <div class="code-block-dot" style="background:#d29922"></div>
+        <div class="code-block-dot" style="background:#3fb950"></div>
+        <span class="code-block-title">Cross-shard reference query</span>
+      </div>
+      <pre>
+<span class="c">-- Find all decisions and their source conversations</span>
+<span class="kw">SELECT</span>
+  d.decision_text,
+  r.target_shard_id  <span class="kw">AS</span> source_shard,
+  r.claim_text       <span class="kw">AS</span> supporting_claim,
+  r.reference_type
+<span class="kw">FROM</span> decisions d
+<span class="kw">JOIN</span> read_parquet(
+  <span class="st">'~/.axm/shards/*/ext/references&#64;1.parquet'</span>,
+  union_by_name = <span class="kw">true</span>
+) r <span class="kw">ON</span> d.episode_id = r.episode_id
+<span class="kw">WHERE</span> r.reference_type = <span class="st">'supersedes'</span>
+<span class="kw">ORDER BY</span> d.created_at <span class="kw">DESC</span>
+</pre>
+    </div>
+  </div>
+
+  <div style="margin-top:24px;" class="code-block">
+    <div class="code-block-header">
+      <div class="code-block-dot" style="background:#f85149"></div>
+      <div class="code-block-dot" style="background:#d29922"></div>
+      <div class="code-block-dot" style="background:#3fb950"></div>
+      <span class="code-block-title">lineage&#64;1.parquet — supersession chain</span>
+    </div>
+    <pre>
+<span class="c">-- Walk the supersession chain for the Merkle format decision</span>
+<span class="kw">WITH RECURSIVE</span> chain <span class="kw">AS</span> (
+  <span class="c">-- anchor: find the original decision</span>
+  <span class="kw">SELECT</span> episode_id, decision_text, superseded_by, <span class="nu">0</span> <span class="kw">AS</span> depth
+  <span class="kw">FROM</span> decisions
+  <span class="kw">WHERE</span> <span class="fn">lower</span>(decision_text) <span class="kw">LIKE</span> <span class="st">'%merkle%'</span>
+    <span class="kw">AND</span> superseded_by <span class="kw">IS NULL</span>
+
+  <span class="kw">UNION ALL</span>
+
+  <span class="c">-- recurse: find what superseded it</span>
+  <span class="kw">SELECT</span> d.episode_id, d.decision_text, d.superseded_by, chain.depth + <span class="nu">1</span>
+  <span class="kw">FROM</span> decisions d
+  <span class="kw">JOIN</span> chain <span class="kw">ON</span> d.superseded_by = chain.episode_id
+)
+<span class="kw">SELECT</span> * <span class="kw">FROM</span> chain <span class="kw">ORDER BY</span> depth
+</pre>
+  </div>
+</section>
+
+<!-- §06 QUERY EXAMPLES -->
+<section id="queries">
+  <div class="sec-label">
+    <span class="sec-num">§06</span>
+    <span class="sec-title">Query Examples</span>
+  </div>
+  <h2>Ask in English.<br>Get rows.</h2>
+  <p style="margin-bottom:0;">Spectra classifies these queries and executes parameterized SQL. No LLM call at query time.</p>
+
+  <div class="query-grid">
+    <div class="query-card">
+      <div class="query-input">
+        <span class="query-prompt">$</span>
+        <span>axm-core spectra "what decisions have we made"</span>
+      </div>
+      <div class="query-sql"><span class="kw">SELECT</span> episode_id, decision_text, rationale
+<span class="kw">FROM</span> decisions
+<span class="kw">ORDER BY</span> created_at <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> <span class="nu">20</span></div>
+      <div class="query-result">✓ 14 rows · 3ms</div>
+    </div>
+
+    <div class="query-card">
+      <div class="query-input">
+        <span class="query-prompt">$</span>
+        <span>axm-core spectra "what failed before we solved the merkle problem"</span>
+      </div>
+      <div class="query-sql"><span class="kw">SELECT</span> problem, graveyard, solution
+<span class="kw">FROM</span> engineering
+<span class="kw">WHERE</span> lower(problem) <span class="kw">LIKE</span> <span class="st">'%merkle%'</span>
+  <span class="kw">AND</span> graveyard <span class="kw">IS NOT NULL</span>
+<span class="kw">ORDER BY</span> created_at</div>
+      <div class="query-result">✓ 3 rows · 6ms</div>
+    </div>
+
+    <div class="query-card">
+      <div class="query-input">
+        <span class="query-prompt">$</span>
+        <span>axm-core spectra "what changed since january"</span>
+      </div>
+      <div class="query-sql"><span class="kw">SELECT</span> episode_id, topic, state, created_at
+<span class="kw">FROM</span> episodes
+<span class="kw">WHERE</span> created_at >= <span class="st">'2026-01-01'</span>
+<span class="kw">ORDER BY</span> created_at <span class="kw">DESC</span></div>
+      <div class="query-result">✓ 47 rows · 4ms</div>
+    </div>
+
+    <div class="query-card">
+      <div class="query-input">
+        <span class="query-prompt">$</span>
+        <span>axm-core spectra "show me all superseded decisions"</span>
+      </div>
+      <div class="query-sql"><span class="kw">SELECT</span> d.decision_text, l.reason,
+       l.superseded_by
+<span class="kw">FROM</span> decisions d
+<span class="kw">JOIN</span> lineage l <span class="kw">USING</span> (episode_id)
+<span class="kw">WHERE</span> l.superseded_by <span class="kw">IS NOT NULL</span></div>
+      <div class="query-result">✓ 8 rows · 5ms</div>
+    </div>
+
+    <div class="query-card">
+      <div class="query-input">
+        <span class="query-prompt">$</span>
+        <span>axm-core spectra "who have we mentioned across all shards"</span>
+      </div>
+      <div class="query-sql"><span class="kw">SELECT DISTINCT</span> unnest(people) <span class="kw">AS</span> person,
+       count(*) <span class="kw">AS</span> mentions
+<span class="kw">FROM</span> episodes
+<span class="kw">WHERE</span> people <span class="kw">IS NOT NULL</span>
+<span class="kw">GROUP BY</span> person
+<span class="kw">ORDER BY</span> mentions <span class="kw">DESC</span></div>
+      <div class="query-result">✓ 23 rows · 9ms</div>
+    </div>
+
+    <div class="query-card">
+      <div class="query-input">
+        <span class="query-prompt">$</span>
+        <span>axm-core spectra "what tools have we used"</span>
+      </div>
+      <div class="query-sql"><span class="kw">SELECT DISTINCT</span> unnest(tools) <span class="kw">AS</span> tool,
+       count(*) <span class="kw">AS</span> occurrences
+<span class="kw">FROM</span> episodes
+<span class="kw">WHERE</span> tools <span class="kw">IS NOT NULL</span>
+<span class="kw">GROUP BY</span> tool
+<span class="kw">ORDER BY</span> occurrences <span class="kw">DESC</span></div>
+      <div class="query-result">✓ 11 rows · 7ms</div>
+    </div>
+  </div>
+</section>
+
+<!-- §07 QUICK START -->
+<section id="start">
+  <div class="sec-label">
+    <span class="sec-num">§07</span>
+    <span class="sec-title">Quick Start</span>
+  </div>
+  <h2>Install.<br>Mount.<br>Query.</h2>
+
+  <div class="install-grid">
+    <div class="install-card">
+      <div class="install-phase">Install</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># Install axm-genesis first (required dep)</span>
+<span class="kw">pip install -e</span> <span class="pa">./axm-genesis</span>
+
+<span class="c"># Install axm-core</span>
+<span class="kw">pip install -e</span> <span class="pa">./axm-core</span>
+
+<span class="c"># Optional: install a spoke to generate shards</span>
+<span class="kw">pip install -e</span> <span class="pa">./axm-chat</span>
+</pre>
+    </div>
+
+    <div class="install-card">
+      <div class="install-phase">Forge a shard</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># Compile a document into a Knowledge Shard</span>
+<span class="kw">axm-forge compile</span> <span class="pa">./document.pdf</span> \
+  <span class="op">--signing-key</span> <span class="pa">keys/publisher.pem</span>
+
+<span class="c"># Verify it immediately</span>
+<span class="kw">axm-verify shard</span> <span class="pa">~/.axm/shards/document-v1/</span> \
+  <span class="op">--trusted-key</span> <span class="pa">keys/publisher.pub</span>
+<span class="ok">→ {"status":"PASS","error_count":0}</span>
+</pre>
+    </div>
+
+    <div class="install-card">
+      <div class="install-phase">Query</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># Natural language via Spectra</span>
+<span class="kw">axm-core spectra</span> <span class="st">"what decisions have we made"</span>
+<span class="kw">axm-core spectra</span> <span class="st">"what failed last week"</span>
+<span class="kw">axm-core spectra</span> <span class="st">"what changed since january"</span>
+
+<span class="c"># Raw DuckDB SQL directly</span>
+<span class="kw">axm-core query</span> <span class="op">--sql</span> <span class="st">"SELECT * FROM episodes LIMIT 5"</span>
+
+<span class="c"># All shards. All parquet. In memory.</span>
+</pre>
+    </div>
+
+    <div class="install-card">
+      <div class="install-phase">Ecosystem</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># axm-genesis  — cryptographic kernel</span>
+<span class="c">#               BLAKE3 + ML-DSA-44 + axm-verify</span>
+
+<span class="c"># axm-core     — this package</span>
+<span class="c">#               Spectra + Forge + DuckDB runtime</span>
+
+<span class="c"># axm-chat     — spoke: conversation shards</span>
+<span class="c"># axm-show     — spoke: drone show telemetry</span>
+<span class="c"># axm-embodied — spoke: robot sensor streams</span>
+
+<span class="c"># All shards. Same format. Same verifier.</span>
+</pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span class="footer-brand">AXM — axm-core</span>
+  <div class="footer-links">
+    <a href="https://bigbirdreturns.github.io/axm-genesis/">axm-genesis</a>
+    <a href="https://bigbirdreturns.github.io/axm-chat/">axm-chat</a>
+    <a href="https://github.com/BigBirdReturns/axm-core">GitHub</a>
+  </div>
+  <span class="footer-meta">Query runtime · No LLM at query time · DuckDB + Parquet</span>
+</footer>
+
+<script>
+// Nav active state on scroll
+const sections = document.querySelectorAll('section[id], header.hero');
+const navLinks = document.querySelectorAll('nav a');
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id || 'what';
+      navLinks.forEach(a => {
+        a.classList.toggle('active', a.getAttribute('href') === `#${id}`);
+      });
+    }
+  });
+}, { threshold: 0.25 });
+
+document.querySelectorAll('section[id]').forEach(s => observer.observe(s));
+
+// Subtle entrance animations
+const cards = document.querySelectorAll('.role-card, .query-card, .install-card, .pipeline-step, .flow-step');
+const cardObs = new IntersectionObserver((entries) => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      entry.target.style.opacity = '0';
+      entry.target.style.transform = 'translateY(12px)';
+      entry.target.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+      setTimeout(() => {
+        entry.target.style.opacity = '1';
+        entry.target.style.transform = 'none';
+      }, 60);
+      cardObs.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1 });
+cards.forEach(c => cardObs.observe(c));
+</script>
+</body>
+</html>

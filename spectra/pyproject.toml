@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "axiom-runtime"
+version = "0.3.1"
+description = "Spectra query engine for the AXM ecosystem"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+
+dependencies = [
+  "duckdb>=0.10.0",
+  "pyarrow>=14.0.0",
+  "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+server = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.5",
+]
+dev = [
+  "pytest>=7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["axiom_runtime*"]

@@ -15,7 +15,7 @@ axm-genesis  ←  axm-core  ←  spokes
 | **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
 | **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
-| **Nodal Flow** | `nodalflow/` | Desktop UI (Tauri + Svelte + DuckDB) |
+| **Nodal Flow** | [separate repo](https://github.com/BigBirdReturns/nodalflow) | Desktop UI (Tauri + Svelte + DuckDB) |
 
 ## Dependency graph
 
@@ -29,7 +29,6 @@ axm-core (this repo — orchestration hub)
   forge/         document ingestion
   spectra/       runtime query
   clarion/       encryption transport
-  nodalflow/     desktop UI
        ↑
 axm-embodied (physical liability spoke)
 axm-<other>     (future spokes)
@@ -89,13 +88,9 @@ pip install -e ./clarion   # topology-bound encryption
 
 ## Nodal Flow (Desktop UI)
 
-```bash
-cd nodalflow
-npm install
-npm run tauri dev
-```
+Nodal Flow is a native desktop interface (Tauri + Svelte + Rust) that embeds the vault and query engine locally. It lives in a separate repository.
 
-Mount a shard → query in natural language → click any citation to verify source bytes.
+Mount a shard, query in natural language, click any citation to verify source bytes.
 
 ## What's frozen (from axm-genesis)
 
