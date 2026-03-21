@@ -14,15 +14,15 @@
   --bg-2:         #1c2330;
   --bg-3:         #21262d;
   --steel:        #8b949e;
-  --steel-dim:    #484f58;
-  --steel-faint:  #2d333b;
+  --steel-dim:    #767e8e;
+  --steel-faint:  #5a626a;
   --cyan:         #39d0d8;
   --cyan-dim:     #1b6b70;
   --cyan-glow:    rgba(57,208,216,0.12);
   --cyan-border:  rgba(57,208,216,0.25);
   --white:        #e6edf3;
   --white-dim:    #8b949e;
-  --white-faint:  #30363d;
+  --white-faint:  #5a626a;
   --rule:         #21262d;
   --rule-strong:  #30363d;
   --green:        #3fb950;
@@ -38,7 +38,7 @@
     --eco-text:     #8b949e;
     --eco-text-hi:  #e6edf3;
     --eco-accent:   #39d0d8;
-    --eco-mono:     'JetBrains Mono', monospace;
+    --eco-mono:     'IBM Plex Mono', monospace;
   }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -49,7 +49,7 @@ body {
   background: var(--bg);
   color: var(--white);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: clamp(13px, 1.4vw, 15px);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
@@ -647,6 +647,16 @@ footer {
   .install-grid { grid-template-columns: 1fr; }
   .hero-corner { display: none; }
   h1 { font-size: clamp(40px, 12vw, 80px); }
+}
+@media (max-width: 580px) {
+  body { font-size: 13px; }
+  .hero { padding: 36px 16px 32px; }
+  section { padding: 36px 16px; }
+  footer { padding: 28px 16px; }
+  nav { padding: 0 8px; }
+  nav a { font-size: 10px; padding: 10px 6px; letter-spacing: 0.04em; }
+  h2 { font-size: clamp(18px, 5vw, 28px); }
+  pre, code { font-size: 11px; }
 }
 </style>
 </head>
