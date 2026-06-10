@@ -27,11 +27,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from axm_forge.models.claims import Claim
 
-# Clarion v2 (GraphKDF) encryption - optional
-try:
-    from clarion.core import encrypt_shard as clarion_encrypt_shard
-except ImportError:
-    clarion_encrypt_shard = None
+# Clarion v2 (GraphKDF) encryption is optional and imported lazily inside
+# emit_shard() only when config.encrypt is set, so this module (and the
+# forge import chain) works without clarion/graphkdf installed.
 
 
 # ============================================================================
@@ -365,14 +363,19 @@ def emit_genesis_shard(
     secret_b64 = None
     
     if config.encrypt:
-        if clarion_encrypt_shard is None:
+        try:
+            from clarion.core import encrypt_shard as clarion_encrypt_shard
+        except ImportError:
             return EmissionResult(
                 success=False,
                 shard_path=shard_dir,
                 envelope_path=None,
                 secret_b64=None,
                 shard_id=shard_id,
-                message="Encryption requested but clarion package not available",
+                message=(
+                    "Encryption requested but clarion package not available "
+                    "(install clarion[kdf] for GraphKDF support)"
+                ),
             )
 
         if config.user_secret_b64:

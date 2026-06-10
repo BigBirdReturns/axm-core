@@ -160,11 +160,22 @@ def cmd_list(decision: bool, verified: Optional[bool]) -> None:
 
 @click.command("verify")
 @click.argument("shard", required=False)
-def cmd_verify(shard: Optional[str]) -> None:
+@click.option(
+    "--trusted-key",
+    "-k",
+    "trusted_key",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Path to the trusted publisher public key used as the verification anchor.",
+)
+def cmd_verify(shard: Optional[str], trusted_key: Optional[Path]) -> None:
     """Verify a shard's Merkle tree and signature.
 
     SHARD can be a shard name prefix or an absolute path.
     If omitted, all shards in the local store are verified.
+
+    A trusted publisher key (--trusted-key/-k) is required: verification
+    is meaningless without a trust anchor, so it is never skipped.
     """
     try:
         from axm_verify.cli import verify_shard  # from axm-genesis
@@ -172,24 +183,71 @@ def cmd_verify(shard: Optional[str]) -> None:
         click.echo("axm-genesis is not installed.  Run: pip install -e ./axm-genesis")
         sys.exit(1)
 
+    if trusted_key is None:
+        click.echo(
+            "Error: a trusted publisher key is required to verify shards.\n"
+            "Pass it with --trusted-key/-k <path-to-publisher.pub>.\n"
+            "Verification anchors the shard's signature to a key you trust; "
+            "without one, signature checks cannot be performed and are never "
+            "silently skipped.",
+            err=True,
+        )
+        sys.exit(1)
+
+    trusted_key = trusted_key.expanduser()
+    if not trusted_key.is_file():
+        click.echo(f"Error: trusted key not found: {trusted_key}", err=True)
+        sys.exit(1)
+
+    def _verify_one(path: Path) -> bool:
+        try:
+            result = verify_shard(str(path), trusted_key)
+        except Exception as exc:  # noqa: BLE001
+            click.echo(f"  ✗  {path}  ERROR: {exc}", err=True)
+            return False
+        status = result.get("status")
+        if status == "PASS":
+            click.echo(f"  ✓  {path}  PASS")
+            return True
+        errors = result.get("errors") or []
+        click.echo(f"  ✗  {path}  {status} ({result.get('error_count', len(errors))} error(s))")
+        for e in errors:
+            click.echo(f"       [{e.get('code', '?')}] {e.get('message', '')}")
+        return False
+
     shard_root = Path.home() / ".axm" / "shards"
     if shard:
         # Resolve by name prefix or literal path
-        candidate = Path(shard)
+        candidate = Path(shard).expanduser()
         if not candidate.exists():
+            if not shard_root.is_dir():
+                click.echo(
+                    f"No shard found at '{shard}' and no shard store exists at {shard_root}.",
+                    err=True,
+                )
+                sys.exit(1)
             matches = [d for d in shard_root.iterdir() if d.name.startswith(shard)]
             if not matches:
-                click.echo(f"No shard found matching '{shard}'")
+                click.echo(f"No shard found matching '{shard}'", err=True)
                 sys.exit(1)
             candidate = matches[0]
-        verify_shard(str(candidate))
+        if not _verify_one(candidate):
+            sys.exit(1)
     else:
-        if not shard_root.exists():
+        if not shard_root.is_dir():
             click.echo("No shard store found.")
             return
+        all_ok = True
+        verified_any = False
         for d in sorted(shard_root.iterdir()):
             if d.is_dir() and (d / "manifest.json").exists():
-                verify_shard(str(d))
+                verified_any = True
+                if not _verify_one(d):
+                    all_ok = False
+        if not verified_any:
+            click.echo("No shards found in the local store.")
+        if not all_ok:
+            sys.exit(1)
 
 
 @click.command("spokes")

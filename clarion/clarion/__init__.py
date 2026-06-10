@@ -46,8 +46,14 @@ from .core import (
     extract_edges_from_claims,
 )
 
-# Re-export Edge from graphkdf for convenience
-from graphkdf import Edge
+# Re-export Edge from graphkdf for convenience. graphkdf is an optional
+# dependency (install clarion[kdf]); resolve it lazily so that bare
+# `import clarion` works without it.
+def __getattr__(name):
+    if name == "Edge":
+        from .core import _require_graphkdf
+        return _require_graphkdf().Edge
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Primary API

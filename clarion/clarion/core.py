@@ -31,16 +31,24 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# Import from frozen GraphKDF package
-from graphkdf import (
-    derive_keys,
-    Edge,
-    v2_legacy_delimited,
-    v3_length_prefixed,
-)
-
 # Clarion's domain for GraphKDF
 CLARION_DOMAIN = b"axm-clarion"
+
+# graphkdf is an optional dependency (not on PyPI). It is imported lazily so
+# that `import clarion` works without it; encryption/decryption paths call
+# _require_graphkdf() and fail with a clear error if it is absent.
+_GRAPHKDF_HINT = (
+    "graphkdf is required for Clarion encryption — install clarion[kdf]"
+)
+
+
+def _require_graphkdf():
+    """Import the frozen GraphKDF package, raising a clear error if absent."""
+    try:
+        import graphkdf
+    except ImportError as e:
+        raise ImportError(_GRAPHKDF_HINT) from e
+    return graphkdf
 
 
 # ============================================================================
@@ -53,6 +61,7 @@ def extract_edges_from_claims(claims: List[Dict[str, Any]]) -> List[Edge]:
     Genesis claims have: subject, predicate, object, object_type
     We extract (subject, predicate, object) as edges.
     """
+    Edge = _require_graphkdf().Edge
     edges = []
     
     for claim in claims:
@@ -68,6 +77,7 @@ def extract_edges_from_claims(claims: List[Dict[str, Any]]) -> List[Edge]:
 
 def extract_edges_from_parquet(claims_parquet: Path) -> List[Edge]:
     """Extract edges from Genesis claims.parquet file."""
+    Edge = _require_graphkdf().Edge
     try:
         import duckdb
         con = duckdb.connect(":memory:")
@@ -289,6 +299,8 @@ def encrypt_shard(
     Returns:
         (envelope_path, envelope_object)
     """
+    graphkdf = _require_graphkdf()
+
     # Load manifest
     manifest_path = shard_path / "manifest.json"
     if not manifest_path.exists():
@@ -304,15 +316,15 @@ def encrypt_shard(
     
     # Select topology hash function
     if topology_hash_version == "v3":
-        hash_fn = v3_length_prefixed
+        hash_fn = graphkdf.v3_length_prefixed
     else:
-        hash_fn = v2_legacy_delimited
-    
+        hash_fn = graphkdf.v2_legacy_delimited
+
     # Derive keys using GraphKDF
     colors = colors or ["Green"]
     salt = secrets.token_bytes(32)
-    
-    result = derive_keys(
+
+    result = graphkdf.derive_keys(
         edges,
         user_secret,
         salt=salt,
@@ -484,6 +496,7 @@ def _decrypt_v2(
     verify_topology: bool,
 ) -> Tuple[Path, List[str]]:
     """Decrypt Clarion v2.0 envelope."""
+    graphkdf = _require_graphkdf()
     envelope = ClarionEnvelope.from_dict(envelope_data)
     
     # Verify files_digest
@@ -494,9 +507,9 @@ def _decrypt_v2(
     
     # Select hash function based on version
     if envelope.topology_hash_version == "v3":
-        hash_fn = v3_length_prefixed
+        hash_fn = graphkdf.v3_length_prefixed
     else:
-        hash_fn = v2_legacy_delimited
+        hash_fn = graphkdf.v2_legacy_delimited
     
     # We need edges to derive keys, but we only have topology_hash in envelope
     # So we derive with the stored topology_hash directly
@@ -507,8 +520,7 @@ def _decrypt_v2(
     colors = colors_to_decrypt or [p.color for p in envelope.partitions]
     
     # Use GraphKDF with stored topology hash
-    from graphkdf import GraphKDFParams
-    kdf_params = GraphKDFParams(
+    kdf_params = graphkdf.GraphKDFParams(
         user_secret=user_secret,
         salt=salt,
         epoch=envelope.kdf_epoch,

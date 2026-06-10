@@ -6,11 +6,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-# Optional Clarion v2 (GraphKDF) support
-try:
-    from clarion.core import decrypt_envelope as clarion_v2_decrypt_envelope  # type: ignore
-except Exception:
-    clarion_v2_decrypt_envelope = None  # type: ignore
 from typing import Any, Dict, List, Optional
 
 from cryptography.hazmat.primitives import hashes
@@ -112,8 +107,15 @@ class TransportAdapter:
 
         clarion_version = envelope.get("clarion_version")
         if clarion_version == "2.0":
-            if clarion_v2_decrypt_envelope is None:
-                raise ClarionError("Clarion v2.0 requires the clarion package")
+            # Clarion v2 (GraphKDF) support is optional; import lazily so this
+            # module loads without the clarion package installed.
+            try:
+                from clarion.core import decrypt_envelope as clarion_v2_decrypt_envelope
+            except ImportError as e:
+                raise ClarionError(
+                    "Clarion v2.0 envelopes require the clarion package "
+                    "(with graphkdf — install clarion[kdf])"
+                ) from e
             user_secret = TransportAdapter._b64d(secret_b64, field="secret_b64")
             out_path, _colors = clarion_v2_decrypt_envelope(Path(envelope_path), user_secret, out_dir=None, temp_root=temp_root)
             return out_path
