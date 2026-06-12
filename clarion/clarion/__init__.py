@@ -7,8 +7,8 @@ Change the graph structure, keys change, decryption fails.
 Basic usage:
     >>> from clarion import encrypt_shard, decrypt_envelope
     >>> 
-    >>> # Encrypt a Genesis shard
-    >>> envelope = encrypt_shard(
+    >>> # Encrypt a Genesis shard (returns the envelope dir and object)
+    >>> envelope_path, envelope = encrypt_shard(
     ...     shard_path=Path("./my-shard"),
     ...     user_secret=secret,
     ...     epoch="epoch_001",
@@ -22,6 +22,11 @@ Basic usage:
     ... )
 
 Clarion uses GraphKDF for key derivation with domain=b"axm-clarion".
+
+The shard's public integrity metadata (top-level manifest.json and the sig/
+directory) travels in the envelope as plaintext "passthrough" blobs and is
+restored byte-identical on decrypt, so the decrypted shard can be verified
+against its Genesis seal and mounted.
 """
 
 __version__ = "2.0.0"

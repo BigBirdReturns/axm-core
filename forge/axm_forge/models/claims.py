@@ -74,7 +74,21 @@ def _stable_json_bytes(obj: Any) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# FORGE-INTERNAL candidate IDs — NOT Genesis identity, NEVER join keys.
+#
+# make_entity_id / make_claim_id below produce working IDs ("ent:..."/"clm:...")
+# used only to track candidates inside the extraction pipeline, before Genesis
+# compilation. The Genesis compiler (axm_build.compiler_generic) RECOMPUTES all
+# entity/claim IDs from candidate content via axm_verify.identity
+# (recompute_entity_id / recompute_claim_id, "e_..."/"c_..." SHA-256 b32 IDs),
+# so these local IDs never reach the sealed parquet tables (INV-7/8/27).
+# Anything that must join against the sealed graph (e.g. derivation passes
+# emitting ext/ parquet) must delegate to axm_verify.identity instead.
+# ---------------------------------------------------------------------------
+
 def make_entity_id(doc_id: str, kind: str, name: str) -> str:
+    # Forge-internal pre-compile working ID — never a join key (see above).
     h = hashlib.blake2b(digest_size=16)
     h.update(doc_id.encode("utf-8"))
     h.update(b"|")
@@ -92,6 +106,7 @@ def make_claim_id(
     primary_span: SourceSpan,
     span_key: str,
 ) -> str:
+    # Forge-internal pre-compile working ID — never a join key (see above).
     h = hashlib.blake2b(digest_size=16)
     h.update(doc_id.encode("utf-8"))
     h.update(b"|")

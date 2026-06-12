@@ -2,13 +2,18 @@
 Temporal Derivation Pass
 
 Reads candidates.jsonl, finds claims with date/time values,
-writes ext/temporal.parquet: {claim_id, valid_from, valid_until, temporal_context}.
+writes temporal.parquet: {claim_id, valid_from, valid_until, temporal_context}.
 
-Adapted from axm-kg derive/temporal.py — stripped of the old Program/Coord
-dependency, operates directly on Genesis candidates.jsonl + compiled claims.
+Runs BEFORE Genesis compilation: the output parquet is staged and injected
+into the shard's ext/ directory by the compile step so it is covered by the
+Merkle root (sealed). Because of that, claim_ids cannot be read from the
+compiled graph — instead they are recomputed here with the exact same
+algorithm the Genesis compiler uses (axm_verify.identity.recompute_claim_id
+over the same inputs axm_build.compiler_generic derives from each candidate),
+so every claim_id in temporal.parquet matches the sealed graph/claims.parquet.
 
 Schema: ext/temporal.parquet (temporal@1)
-  claim_id         string  — joins to claims.parquet
+  claim_id         string  — joins to graph/claims.parquet
   valid_from       string  — ISO 8601 or empty
   valid_until      string  — ISO 8601 or empty
   temporal_context string  — human-readable note
@@ -69,50 +74,84 @@ def _extract_date(text: str) -> Optional[str]:
 
 def run_temporal_pass(
     candidates_path: Path,
-    shard_dir: Path,
+    out_dir: Path,
     *,
-    claim_id_map: Optional[Dict[str, str]] = None,
+    namespace: str,
+    source_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
-    Scan candidates.jsonl for temporal claims.
-    Writes ext/temporal.parquet if any found.
+    Scan candidates.jsonl for temporal claims and write temporal.parquet
+    into out_dir (a staging directory; the compile step injects it into the
+    shard's ext/ before the Merkle root is computed).
 
-    claim_id_map: optional {candidate_key -> compiled_claim_id}
-    If not provided, uses the candidate's own identity fields to build a stable key.
+    namespace:   shard namespace — must match what is passed to the Genesis
+                 compiler, since entity/claim IDs are namespace-scoped.
+    source_path: raw merged source text. If given, candidates whose evidence
+                 the Genesis compiler would drop (evidence not found exactly
+                 once in the normalized content bytes) are skipped here too,
+                 guaranteeing every emitted claim_id exists in the sealed
+                 graph/claims.parquet.
 
     Returns stats dict.
     """
-    rows: List[Dict[str, Any]] = []
+    # INV-7/8/27: claim identity is owned by Genesis. Delegate, never reimplement.
+    from axm_verify.identity import recompute_claim_id, recompute_entity_id
+    try:
+        from axm_verify.const import VALID_OBJECT_TYPES
+    except ImportError:  # pragma: no cover — older genesis layouts
+        from axm_build.schemas import VALID_OBJECT_TYPES
 
-    with candidates_path.open("r", encoding="utf-8") as f:
+    content_bytes: Optional[bytes] = None
+    if source_path is not None and Path(source_path).exists():
+        from axm_build.common import normalize_source_text
+        content_bytes = normalize_source_text(
+            Path(source_path).read_text(encoding="utf-8")
+        ).encode("utf-8")
+
+    rows: List[Dict[str, Any]] = []
+    seen_claim_ids = set()
+
+    with Path(candidates_path).open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             c = json.loads(line)
-            pred = c.get("predicate", "")
-            obj = str(c.get("object", ""))
-            ev = c.get("evidence", "")
+
+            # Mirror axm_build.compiler_generic.compile_generic_shard's
+            # candidate handling exactly so claim_ids line up 1:1.
+            subj_label = str(c.get("subject", "")).strip()
+            pred = str(c.get("predicate", "")).strip()
+            obj = str(c.get("object", "")).strip()
+            evidence = c.get("evidence") or c.get("evidence_quote")
+
+            if not subj_label or not pred or not evidence:
+                continue  # compiler skips these
+            obj_type = c.get("object_type", "entity")
+            if obj_type not in VALID_OBJECT_TYPES:
+                continue  # compiler skips these
 
             if not _is_temporal(pred, obj):
                 continue
 
-            valid_from = _extract_date(obj) or _extract_date(ev) or ""
-            temporal_context = f"{pred}: {obj}"
+            if content_bytes is not None:
+                # Compiler drops candidates whose evidence is not found
+                # (and aborts the whole build on ambiguous evidence, in
+                # which case no shard exists at all) — only emit temporal
+                # rows for claims that will actually be sealed.
+                if content_bytes.count(str(evidence).encode("utf-8")) != 1:
+                    continue
 
-            # Derive a claim_id key consistent with Genesis identity rules
-            # (subject + predicate + object + byte range → hash)
-            import hashlib
-            key = json.dumps({
-                "subject": c.get("subject", ""),
-                "predicate": pred,
-                "object": obj,
-                "byte_start": c.get("byte_start", 0),
-                "byte_end": c.get("byte_end", 0),
-            }, sort_keys=True)
-            claim_id = "claim_" + hashlib.sha256(key.encode()).hexdigest()[:16]
-            if claim_id_map:
-                claim_id = claim_id_map.get(claim_id, claim_id)
+            subj_id = recompute_entity_id(namespace, subj_label)
+            obj_val = recompute_entity_id(namespace, obj) if obj_type == "entity" else obj
+            claim_id = recompute_claim_id(subj_id, pred, obj_val, obj_type)
+
+            if claim_id in seen_claim_ids:
+                continue
+            seen_claim_ids.add(claim_id)
+
+            valid_from = _extract_date(obj) or _extract_date(str(evidence)) or ""
+            temporal_context = f"{pred}: {obj}"
 
             rows.append({
                 "claim_id": claim_id,
@@ -124,9 +163,9 @@ def run_temporal_pass(
     if not rows:
         return {"temporal_rows": 0, "written": False}
 
-    ext_dir = shard_dir / "ext"
-    ext_dir.mkdir(exist_ok=True)
-    out_path = ext_dir / "temporal.parquet"
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "temporal.parquet"
     _write_parquet(out_path, rows)
 
     return {"temporal_rows": len(rows), "written": True, "path": str(out_path)}

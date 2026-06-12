@@ -643,12 +643,18 @@ def run_tier0_tier1(
             if saved.exists():
                 from axm_forge.extraction.schemas import read_jsonl
                 for rec in read_jsonl(saved):
-                    all_candidates.append(Candidate(**{
-                        k: rec[k] for k in ("subject", "predicate", "object",
-                                             "object_type", "evidence", "tier",
-                                             "extraction_method")
-                        if k in rec
-                    }, meta=rec.get("meta")))
+                    # to_dict() does not persist extraction_method; default to
+                    # the pass id so checkpoint resume reconstructs cleanly.
+                    all_candidates.append(Candidate(
+                        subject=rec.get("subject", ""),
+                        predicate=rec.get("predicate", ""),
+                        object=rec.get("object", ""),
+                        object_type=rec.get("object_type", "entity"),
+                        evidence=rec.get("evidence", ""),
+                        tier=rec.get("tier", extractor_cls.tier),
+                        extraction_method=rec.get("extraction_method", pass_id),
+                        meta=rec.get("meta"),
+                    ))
             continue
 
         t0 = time.time()
@@ -825,8 +831,17 @@ def compile_shard(
     suite: str = "axm-blake3-mldsa44",
     supersedes: tuple = (),
     domain_hints: str = "",
+    extra_ext_files: Optional[List[Path]] = None,
 ) -> bool:
-    """Compile candidates into a signed Genesis shard."""
+    """Compile candidates into a signed Genesis shard.
+
+    extra_ext_files: pre-derived extension parquet files (e.g. coords.parquet,
+    temporal.parquet) that must be injected into the shard's ext/ directory
+    BEFORE the Merkle root is computed, so they are covered by the seal.
+    Nothing may write into the shard directory after this function returns.
+    """
+    import dataclasses
+    import axm_build.compiler_generic as _compiler_mod
     from axm_build.compiler_generic import CompilerConfig, compile_generic_shard
     from axm_build.sign import mldsa44_keygen
 
@@ -862,21 +877,52 @@ def compile_shard(
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    cfg = CompilerConfig(
-        source_path=source_path,
-        candidates_path=candidates_path,
-        out_dir=shard_dir,
-        private_key=private_key,
-        publisher_id="@jonathan",
-        publisher_name="Jonathan",
-        namespace=namespace,
-        created_at=now,
-        suite=suite,
-        supersedes=supersedes,
-        domain_hints=domain_hints,
-    )
+    cfg_kwargs = {
+        "source_path": source_path,
+        "candidates_path": candidates_path,
+        "out_dir": shard_dir,
+        "private_key": private_key,
+        "publisher_id": "@jonathan",
+        "publisher_name": "Jonathan",
+        "namespace": namespace,
+        "created_at": now,
+        "suite": suite,
+        "supersedes": supersedes,
+        "domain_hints": domain_hints,
+    }
+    # Only pass fields the installed Genesis CompilerConfig supports
+    # (axm-genesis 1.2.0 has no supersedes/domain_hints fields).
+    supported = {f.name for f in dataclasses.fields(CompilerConfig)}
+    dropped = [k for k, v in cfg_kwargs.items() if k not in supported and v]
+    if dropped:
+        log(f"  Note: installed Genesis compiler ignores: {', '.join(dropped)}", "warn")
+    cfg = CompilerConfig(**{k: v for k, v in cfg_kwargs.items() if k in supported})
 
-    return compile_generic_shard(cfg)
+    # compile_generic_shard wipes out_dir at the start and computes the
+    # Merkle root internally, so pre-derived ext/ files cannot simply be
+    # placed in shard_dir beforehand. Inject them at the exact point the
+    # compiler seals the directory: wrap compute_merkle_root so the staged
+    # files are copied into ext/ immediately before the root is computed.
+    # They are therefore covered by the Merkle root, listed in the
+    # manifest's "extensions", and verified by the compiler's self-verify.
+    extra = [Path(p) for p in (extra_ext_files or []) if Path(p).exists()]
+    if not extra:
+        return compile_generic_shard(cfg)
+
+    orig_merkle = _compiler_mod.compute_merkle_root
+
+    def _merkle_with_staged_ext(shard_root, suite="ed25519"):
+        ext_dir = Path(shard_root) / "ext"
+        ext_dir.mkdir(parents=True, exist_ok=True)
+        for f in extra:
+            shutil.copy2(f, ext_dir / f.name)
+        return orig_merkle(shard_root, suite=suite)
+
+    _compiler_mod.compute_merkle_root = _merkle_with_staged_ext
+    try:
+        return compile_generic_shard(cfg)
+    finally:
+        _compiler_mod.compute_merkle_root = orig_merkle
 
 
 # ---------------------------------------------------------------------------
@@ -911,7 +957,7 @@ def run_pipeline(
     ckpt = CheckpointManager(work_dir)
 
     # Merge sources
-    log("[1/4] Merging and normalizing sources...", "stage")
+    log("[1/5] Merging and normalizing sources...", "stage")
     source_path = work_dir / "source.txt"
     if not source_path.exists():
         merged_text, offsets = merge_sources(plan.source_files)
@@ -927,7 +973,7 @@ def run_pipeline(
     source_bytes = merged_text.encode("utf-8")
 
     # Tier 0/1 extraction
-    log("\n[2/4] Tier 0/1 extraction (deterministic)...", "stage")
+    log("\n[2/5] Tier 0/1 extraction (deterministic)...", "stage")
     t0 = time.time()
     tier0_1_candidates = run_tier0_tier1(merged_text, source_bytes, work_dir, ckpt)
     dt = time.time() - t0
@@ -936,7 +982,7 @@ def run_pipeline(
     # Tier 3 LLM extraction
     tier3_candidates = []
     if not skip_llm:
-        log("\n[3/4] Tier 3 LLM extraction...", "stage")
+        log("\n[3/5] Tier 3 LLM extraction...", "stage")
         tier3_candidates = run_tier3_llm(
             source_path=source_path,
             work_dir=work_dir,
@@ -946,14 +992,57 @@ def run_pipeline(
         )
         log(f"  Total tier 3: {len(tier3_candidates)} candidates", "ok")
     else:
-        log("\n[3/4] Tier 3 LLM extraction: SKIPPED (--skip-llm)", "dim")
+        log("\n[3/5] Tier 3 LLM extraction: SKIPPED (--skip-llm)", "dim")
 
-    # Merge + compile
-    log("\n[4/4] Merging candidates and compiling shard...", "stage")
+    # Merge candidates
+    log("\n[4/5] Merging candidates and running derivation passes...", "stage")
     candidates_path = work_dir / "candidates.jsonl"
     n_total = merge_candidates(tier0_1_candidates, tier3_candidates, candidates_path)
     log(f"  {n_total} total candidates (deduplicated)", "ok")
 
+    # ── Pre-compile derivation passes ─────────────────────────────────────
+    # Derivation MUST run before Genesis compilation: its parquet outputs are
+    # staged here and injected into the shard's ext/ directory at seal time,
+    # so they are covered by the Merkle root. Writing into the shard after
+    # compilation would break verification (false provenance). The passes
+    # recompute the exact Genesis entity/claim IDs (axm_verify.identity) the
+    # compiler will assign, so ext/ join keys match the sealed graph tables.
+    # Staged outputs are deterministic and cheap, so they are rebuilt on every
+    # run (including resumes) rather than checkpointed.
+    ext_stage = work_dir / "ext_stage"
+    if ext_stage.exists():
+        shutil.rmtree(ext_stage)
+    ext_stage.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from axm_forge.derivation.coords import run_coords_pass
+        coords_result = run_coords_pass(
+            candidates_path, namespace=namespace, out_dir=ext_stage,
+        )
+        if coords_result.get("written"):
+            log(f"  coords@1: {coords_result['rows']} entities classified", "ok")
+        else:
+            log(f"  coords@1: skipped ({coords_result.get('reason', 'no entities')})", "dim")
+    except Exception as e:
+        log(f"  coords@1: failed ({e})", "warn")
+
+    try:
+        from axm_forge.derivation.temporal import run_temporal_pass
+        temporal_result = run_temporal_pass(
+            candidates_path, ext_stage,
+            namespace=namespace, source_path=source_path,
+        )
+        if temporal_result.get("written"):
+            log(f"  temporal@1: {temporal_result['temporal_rows']} temporal claims", "ok")
+        else:
+            log(f"  temporal@1: skipped (no temporal claims detected)", "dim")
+    except Exception as e:
+        log(f"  temporal@1: failed ({e})", "warn")
+
+    extra_ext_files = sorted(ext_stage.glob("*.parquet"))
+
+    # Compile (seals everything, including staged ext/ files)
+    log("\n[5/5] Compiling shard...", "stage")
     shard_dir = output_dir / "shard"
     if shard_dir.exists():
         shutil.rmtree(shard_dir)
@@ -969,37 +1058,12 @@ def run_pipeline(
             suite=suite,
             supersedes=supersedes,
             domain_hints=domain_hints,
+            extra_ext_files=extra_ext_files,
         )
         dt = time.time() - t0
         if ok:
             log(f"\n  ✓ Shard compiled and verified ({dt:.1f}s)", "ok")
             log(f"  Location: {shard_dir}", "ok")
-
-            # ── Post-compile derivation pass ──────────────────────────────
-            # Runs after Genesis compilation so derivation reads the real
-            # compiled claim IDs from graph/claims.parquet.
-            log(f"\n  Running derivation passes...", "stage")
-
-            try:
-                sys.path.insert(0, str(_root / "forge"))
-                from axm_forge.derivation.coords import run_coords_pass
-                coords_result = run_coords_pass(shard_dir)
-                if coords_result.get("written"):
-                    log(f"  coords@1: {coords_result['rows']} entities classified", "ok")
-                else:
-                    log(f"  coords@1: skipped ({coords_result.get('reason', 'no entities')})", "dim")
-            except Exception as e:
-                log(f"  coords@1: failed ({e})", "warn")
-
-            try:
-                from axm_forge.derivation.temporal import run_temporal_pass
-                temporal_result = run_temporal_pass(candidates_path, shard_dir)
-                if temporal_result.get("written"):
-                    log(f"  temporal@1: {temporal_result['temporal_rows']} temporal claims", "ok")
-                else:
-                    log(f"  temporal@1: skipped (no temporal claims detected)", "dim")
-            except Exception as e:
-                log(f"  temporal@1: failed ({e})", "warn")
 
             # Show summary
             manifest = json.loads((shard_dir / "manifest.json").read_text())
