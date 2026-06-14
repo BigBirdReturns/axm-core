@@ -123,8 +123,16 @@ dependency chain: spoke → axm-core → axm-genesis. Spokes never vendor genesi
 **INV-27: Every spoke has an `axm_<spoke>_core` package for domain-local constants.**
 This package contains only what is genuinely spoke-specific: binary format constants,
 domain identity functions (e.g. `span_id`, `prov_id`) that have no genesis equivalent.
-It never duplicates genesis — `entity_id` and `claim_id` always delegate to
-`axm_verify.identity.recompute_entity_id` / `recompute_claim_id`.
+It never duplicates genesis identity logic.
+
+The genesis compiler is the authority for sealed `entity_id`/`claim_id`: at seal time
+it **recomputes** every entity and claim ID from candidate content via
+`axm_verify.identity.recompute_entity_id` / `recompute_claim_id`. Any internal,
+pre-compile working IDs that forge or a spoke uses never reach sealed parquet — the
+compiler overwrites them. Code outside the compiler (e.g. forge's `temporal`/`coords`
+derivation passes that must produce `ext/` rows whose join keys match the sealed
+claims) does not invent its own scheme; it delegates to the same
+`axm_verify.identity` functions so the keys agree with what the compiler will seal.
 
 **INV-28: Spoke compile always calls `compile_generic_shard`.**
 This is the only path to a genesis-verifiable shard. Spokes that bypass it and write
@@ -134,8 +142,15 @@ inject-and-reseal pattern (see `axm-embodied/compile.py::_inject_latents_and_res
 
 **INV-29: Domain extension data goes in `ext/`, not `evidence/`.**
 `evidence/spans.parquet` is the only permitted file in `evidence/`. Any spoke-specific
-Parquet output (stream metadata, coordinates, references, etc.) must go in `ext/`
-using the `name@version` filename convention. The genesis verifier ignores `ext/`.
+Parquet output (stream metadata, coordinates, references, etc.) must go in `ext/`.
+
+The on-disk filename is **bare** — `ext/temporal.parquet`, `ext/coords.parquet`,
+`ext/locators.parquet` — with NO `@version` in the filename. The genesis compiler
+derives the logical extension name by appending `@version` to the file stem and
+records it in the manifest's `extensions` list (`temporal.parquet` → `temporal@1`,
+`coords.parquet` → `coords@1`). The `@version` lives in the MANIFEST, not in the
+filename. Do not write `name@version.parquet` files — that produces a double
+`@1` in the manifest and breaks verification. The genesis verifier ignores `ext/`.
 
 ---
 

@@ -11,7 +11,7 @@ This release re-anchors Spectra on the AXM Genesis constitution. Spectra mounts 
 * **Strict Genesis Identity**: Derives identity and `mount_id` from `manifest.json` fields mandated by Genesis (`spec_version`, `shard_id`, `integrity.merkle_root`).
 
 ### Operational Hardening
-* **Strict Constitution Gate**: Fails hard when `axm-verify` is missing unless `SPECTRA_DEV_MODE=1` or `SPECTRA_ALLOW_LAYOUT_FALLBACK=1` is set.
+* **Strict Constitution Gate**: Fails hard when `axm-verify` is missing unless `SPECTRA_DEV_MODE=1` is set. (The earlier `SPECTRA_ALLOW_LAYOUT_FALLBACK` escape hatch has since been removed.)
 * **Boot Transport Awareness**: Allows public Genesis mounts with no secret, while requiring secrets for Clarion mounts.
 
 ## [0.3.0] - 2026-01-06

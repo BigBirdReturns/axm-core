@@ -15,7 +15,7 @@ Flow:
         ↓
     DecisionForgeAdapter.export_candidates(out_path)
         ↓
-    candidates.jsonl  (feed into nodal_run.py → Genesis)
+    candidates.jsonl  (feed into the Forge → Genesis compile path)
         ↓
     decision shard (mountable via Spectra)
 

@@ -111,13 +111,30 @@ def decrypt_envelope(
       "color": "Green",
       "files": [...]
     }
+  ],
+  "passthrough": [
+    { "path": "manifest.json", "blob_hash": "<sha256>", "encrypted": false },
+    { "path": "sig/publisher.pub", "blob_hash": "<sha256>", "encrypted": false },
+    { "path": "sig/manifest.sig", "blob_hash": "<sha256>", "encrypted": false }
   ]
 }
 ```
 
+### Passthrough files
+
+`manifest.json` and the `sig/` directory are the shard's public integrity
+metadata — they are precisely what lets a recipient verify the Genesis seal, so
+they travel through the envelope as **plaintext** passthrough blobs (stored in
+`blobs/`, keyed by SHA-256, marked `"encrypted": false`) and are restored
+byte-identical on decrypt. Without this, a decrypted shard would be missing its
+manifest and signatures and could never be verified or mounted. The
+`"passthrough"` array is optional and omitted when empty; envelopes without it
+decrypt exactly as before.
+
 ## Backward Compatibility
 
-Clarion v2.0 can decrypt v1.0 and v1.1 envelopes (which lack topology binding).
+Clarion v2.0 can decrypt v1.0 and v1.1 envelopes (which lack topology binding),
+and envelopes produced before the passthrough section was added.
 
 ## Dependencies
 

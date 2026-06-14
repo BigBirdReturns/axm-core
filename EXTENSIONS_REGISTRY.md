@@ -5,8 +5,16 @@ Arrow schema, sort key, stable join strategy, and consumer contract.
 
 ## Versioning
 
-Extensions use `name@version` format in manifest.json. Version is integer.
-Breaking schema changes increment version. New versions are new extensions.
+Extensions use `name@version` format **in manifest.json's `extensions` list only**.
+Version is an integer. Breaking schema changes increment version; new versions are
+new extensions.
+
+The on-disk file is named with a **bare** stem and no `@version`
+(e.g. `ext/temporal.parquet`, `ext/coords.parquet`). The genesis compiler derives
+the logical name by appending `@version` to the stem and records it in the manifest
+(`temporal.parquet` → `temporal@1`). Never name the file `temporal@1.parquet` — the
+compiler would then record `temporal@1@1` and verification breaks. See INVARIANTS.md
+INV-29.
 
 ## Identity Rules (see also INVARIANTS.md)
 

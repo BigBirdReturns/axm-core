@@ -70,16 +70,20 @@ curl -X POST http://localhost:8080/query \
 | `SPECTRA_EMBED_PROVIDER` | `mock` | Embedding provider |
 | `SPECTRA_CHAT_PROVIDER` | `openai` | Chat provider |
 
-## Clarion v1.1 Support
+## Clarion Support
 
-Spectra v1.0 supports both Clarion envelope formats:
-- **v1.0**: Uses `blob_hash` in AAD (may fail due to bug)
-- **v1.1**: Uses `plaintext_hash` in AAD (recommended)
+Spectra decrypts Clarion envelopes (`envelope.json` + `blobs/`) to a byte-perfect
+Genesis shard before running `axm-verify`. The canonical format is **v2.0**
+(topology-bound GraphKDF keys). Legacy v1.0/v1.1 envelopes still decrypt for
+backward compatibility:
+- **v2.0**: GraphKDF topology binding; `plaintext_hash` in AAD (canonical)
+- **v1.1**: legacy — `plaintext_hash` in AAD, no topology binding
+- **v1.0**: legacy — `blob_hash` in AAD
 
 ## What Changed
 
 - Hard gate on axm-verify (no production bypass)
-- Clarion v1.1 decryption support
+- Clarion v2.0 decryption support (v1.x still accepted for backward compatibility)
 - Removed `SPECTRA_ALLOW_LAYOUT_FALLBACK`
 
 ## License

@@ -36,6 +36,8 @@ _root = Path(__file__).resolve().parent
 sys.path.insert(0, str(_root / "forge"))
 sys.path.insert(0, str(_root))
 
+from axm_forge.extraction.schemas import read_jsonl  # canonical JSONL reader
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -641,7 +643,6 @@ def run_tier0_tier1(
             # Load from saved file
             saved = work_dir / f"{pass_id}_candidates.jsonl"
             if saved.exists():
-                from axm_forge.extraction.schemas import read_jsonl
                 for rec in read_jsonl(saved):
                     # to_dict() does not persist extraction_method; default to
                     # the pass id so checkpoint resume reconstructs cleanly.
@@ -694,7 +695,6 @@ def run_tier3_llm(
         log(f"  {pass_id}: skipped (checkpoint)", "dim")
         candidates_file = work_dir / "tier3_candidates.jsonl"
         if candidates_file.exists():
-            from axm_forge.extraction.schemas import read_jsonl
             return read_jsonl(candidates_file)
         return []
 
@@ -751,7 +751,6 @@ def run_tier3_llm(
 
     ckpt.mark_pass_done(pass_id)
 
-    from axm_forge.extraction.schemas import read_jsonl
     return read_jsonl(tier3_candidates_path)
 
 

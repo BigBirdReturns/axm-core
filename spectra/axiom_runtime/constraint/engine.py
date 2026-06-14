@@ -12,8 +12,8 @@ Constraint shards are regular Genesis shards where:
   - claims   = constraint predicates (PROHIBITS, PERMITS, REQUIRES, DELEGATES_TO, REVOKES)
   - provenance chain traces back to source doctrine documents
 
-To build a constraint shard: run nodal_run.py on the doctrine document,
-then namespace it as "constraint/{type}".
+To build a constraint shard: run the Forge → Genesis compile path on the
+doctrine document, then namespace it as "constraint/{type}".
 """
 from __future__ import annotations
 

@@ -52,8 +52,10 @@ axm-forge build document.pdf \
   --out ./shards/ \
   --namespace medical/protocols \
   --enable-llm \
-  --llm-provider openai
+  --llm-provider ollama
 ```
+
+`--llm-provider` defaults to `ollama`; `openai`, `anthropic`, and `mock` are also accepted.
 
 ## Commands
 
@@ -67,7 +69,7 @@ axm-forge build document.pdf \
 
 - Now emits `candidates.jsonl` instead of custom format
 - Calls Genesis `axm-build` and `axm-verify`
-- Clarion v1.1 with fixed AAD
+- Clarion v2.0 envelope (envelope.json + blobs/) with topology-bound GraphKDF keys
 
 ## License
 
