@@ -15,14 +15,28 @@ Supports:
   - Lineage (what superseded what)
 
 Usage:
+    from axiom_runtime.nlquery import natural_language_to_query
+
+    sql, params = natural_language_to_query("what decisions conflict")
+    # execute through the read-only gate with bound parameters:
+    #   con.execute(sql, params)
+
+    # Backward-compatible string-only entry point (no user values inlined):
     from axiom_runtime.nlquery import natural_language_to_sql
+    sql = natural_language_to_sql("all decisions")
 
-    sql = natural_language_to_sql("what decisions conflict")
-    results = spectra_engine.query_json(sql)
+SECURITY: All user/data-derived values (topics, dates) are passed as DuckDB
+bound parameters (``?`` placeholders) — never interpolated into the SQL text.
+Only fixed internal table/column identifiers and the static decision-predicate
+allowlist are rendered as literal SQL. This gives the "zero injection surface"
+the engine's read-only gate (sqlgate.is_read_only_sql) advertises.
 
-Assumes standard AXM schema:
-    claims(claim_id, subject, predicate, object, object_type, tier, shard_id)
-    entities(entity_id, label, shard_id)
+Real Genesis claims schema (frozen):
+    claims(claim_id, subject, predicate, object, object_type, tier)
+    entities(entity_id, namespace, label, entity_type)
+  Note: claims has NO shard_id column — the union views are plain
+  ``SELECT *`` across per-shard parquet, which carries no shard provenance
+  column. Queries therefore do not project/join shard_id off claims.
   Optional (from extensions):
     temporal(claim_id, valid_from, valid_until, temporal_context)
     lineage(shard_id, supersedes_shard_id, action, timestamp, note)
@@ -31,11 +45,18 @@ Assumes standard AXM schema:
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import List, Optional, Tuple
+
+# A parameterized query: SQL text with ``?`` placeholders plus the ordered
+# list of bound parameter values.
+Query = Tuple[str, List[object]]
 
 
 # ---------------------------------------------------------------------------
 # Decision predicates recognized by the system
+#
+# Static, code-defined allowlist (not user data). Rendered as a literal IN
+# clause; values can never come from the request.
 # ---------------------------------------------------------------------------
 
 DECISION_PREDICATES = (
@@ -50,10 +71,12 @@ DECISION_IN_CLAUSE = f"({', '.join(DECISION_PREDICATES)})"
 # Public API
 # ---------------------------------------------------------------------------
 
-def natural_language_to_sql(question: str, limit: int = 50) -> str:
-    """Convert a plain-English question to SQL.
+def natural_language_to_query(question: str, limit: int = 50) -> Query:
+    """Convert a plain-English question to a parameterized SQL query.
 
-    Returns a SQL string ready for Spectra's query_json().
+    Returns ``(sql, params)`` where ``sql`` contains ``?`` placeholders and
+    ``params`` is the ordered list of bound values. Execute with
+    ``con.execute(sql, params)`` (through the read-only gate).
     """
     q = question.lower().strip()
 
@@ -76,32 +99,46 @@ def natural_language_to_sql(question: str, limit: int = 50) -> str:
             return result
 
     # Last resort
-    return f"""
+    return (
+        """
         SELECT DISTINCT subject, object AS title
         FROM claims
         WHERE predicate = 'has_title'
         ORDER BY subject
-        LIMIT {limit}
+        LIMIT ?
+        """,
+        [limit],
+    )
+
+
+def natural_language_to_sql(question: str, limit: int = 50) -> str:
+    """Backward-compatible string entry point.
+
+    Returns the SQL text only. Because user/data values are bound as ``?``
+    placeholders, the returned string is parameter-free SQL and must be
+    executed with the matching parameters from ``natural_language_to_query``.
+    Prefer ``natural_language_to_query`` for execution.
     """
+    sql, _params = natural_language_to_query(question, limit)
+    return sql
 
 
 # ---------------------------------------------------------------------------
-# Pattern handlers — each returns SQL or None to pass through
+# Pattern handlers — each returns (sql, params) or None to pass through
 # ---------------------------------------------------------------------------
 
-def _handle_contradictions(q: str, limit: int) -> Optional[str]:
+def _handle_contradictions(q: str, limit: int) -> Optional[Query]:
     """Detect: 'what contradicts', 'conflicts', 'contradictions', 'inconsistent'"""
     if not any(k in q for k in ["contradict", "conflict", "inconsisten"]):
         return None
 
-    return f"""
+    return (
+        f"""
         SELECT
             a.subject,
             a.predicate,
             a.object AS decision_a,
-            b.object AS decision_b,
-            a.shard_id AS shard_a,
-            b.shard_id AS shard_b
+            b.object AS decision_b
         FROM claims a
         JOIN claims b
             ON a.subject = b.subject
@@ -110,11 +147,13 @@ def _handle_contradictions(q: str, limit: int) -> Optional[str]:
             AND a.claim_id < b.claim_id
         WHERE a.predicate IN {DECISION_IN_CLAUSE}
         ORDER BY a.subject
-        LIMIT {limit}
-    """
+        LIMIT ?
+        """,
+        [limit],
+    )
 
 
-def _handle_timeline(q: str, limit: int) -> Optional[str]:
+def _handle_timeline(q: str, limit: int) -> Optional[Query]:
     """Detect: 'timeline', 'history of', 'chronolog'"""
     if not any(k in q for k in ["timeline", "history of", "chronolog"]):
         return None
@@ -123,60 +162,72 @@ def _handle_timeline(q: str, limit: int) -> Optional[str]:
     m = re.search(r"(?:timeline|history)\s+(?:of|for)\s+(.+?)(?:\?|$)", q)
     if m:
         topic = _clean_topic(m.group(1))
-        return f"""
+        like = _like(topic)
+        return (
+            f"""
             SELECT
                 c.subject, c.predicate, c.object,
-                t.valid_from AS decided_at,
-                c.shard_id
+                t.valid_from AS decided_at
             FROM claims c
             LEFT JOIN temporal t ON c.claim_id = t.claim_id
             WHERE c.predicate IN {DECISION_IN_CLAUSE}
-              AND (lower(c.object) LIKE '%{topic}%'
-                   OR lower(c.subject) LIKE '%{topic}%')
+              AND (lower(c.object) LIKE ?
+                   OR lower(c.subject) LIKE ?)
             ORDER BY t.valid_from ASC NULLS LAST
-            LIMIT {limit}
-        """
+            LIMIT ?
+            """,
+            [like, like, limit],
+        )
 
     # General timeline of all decisions
-    return f"""
+    return (
+        f"""
         SELECT
             c.subject, c.predicate, c.object,
-            t.valid_from AS decided_at,
-            c.shard_id
+            t.valid_from AS decided_at
         FROM claims c
         LEFT JOIN temporal t ON c.claim_id = t.claim_id
         WHERE c.predicate IN {DECISION_IN_CLAUSE}
         ORDER BY t.valid_from ASC NULLS LAST
-        LIMIT {limit}
-    """
+        LIMIT ?
+        """,
+        [limit],
+    )
 
 
-def _handle_staleness(q: str, limit: int) -> Optional[str]:
+def _handle_staleness(q: str, limit: int) -> Optional[Query]:
     """Detect: 'stale', 'outdated', 'old decisions', 'not reviewed', 'coverage'"""
     if not any(k in q for k in ["stale", "outdat", "not review", "coverage", "old decision"]):
         return None
 
-    return f"""
+    return (
+        f"""
         SELECT
             c.subject, c.predicate, c.object,
             t.valid_from AS decided_at,
-            t.valid_until,
-            c.shard_id
+            t.valid_until
         FROM claims c
         LEFT JOIN temporal t ON c.claim_id = t.claim_id
         WHERE c.predicate IN {DECISION_IN_CLAUSE}
           AND (t.valid_until IS NULL OR t.valid_until = '')
         ORDER BY t.valid_from ASC NULLS FIRST
-        LIMIT {limit}
+        LIMIT ?
+        """,
+        [limit],
+    )
+
+
+def _handle_lineage(q: str, limit: int) -> Optional[Query]:
+    """Detect: 'supersed', 'what replaced', 'version', 'lineage'
+
+    Reads the ext lineage view, which DOES have shard_id / supersedes_shard_id
+    columns (distinct from claims). No user values are interpolated.
     """
-
-
-def _handle_lineage(q: str, limit: int) -> Optional[str]:
-    """Detect: 'supersed', 'what replaced', 'version', 'lineage'"""
     if not any(k in q for k in ["supersed", "replaced", "lineage", "version chain"]):
         return None
 
-    return f"""
+    return (
+        """
         SELECT
             l.shard_id AS current_shard,
             l.supersedes_shard_id AS replaced_shard,
@@ -185,11 +236,13 @@ def _handle_lineage(q: str, limit: int) -> Optional[str]:
             l.note
         FROM lineage l
         ORDER BY l.timestamp DESC
-        LIMIT {limit}
-    """
+        LIMIT ?
+        """,
+        [limit],
+    )
 
 
-def _handle_changed_since(q: str, limit: int) -> Optional[str]:
+def _handle_changed_since(q: str, limit: int) -> Optional[Query]:
     """Detect: 'changed since', 'new since', 'after january', 'since february'"""
     # Look for date references
     m = re.search(
@@ -216,21 +269,23 @@ def _handle_changed_since(q: str, limit: int) -> Optional[str]:
             date_str = f"{year}-{month_num}-01"
             break
 
-    return f"""
+    return (
+        f"""
         SELECT
             c.subject, c.predicate, c.object,
-            t.valid_from AS decided_at,
-            c.shard_id
+            t.valid_from AS decided_at
         FROM claims c
         LEFT JOIN temporal t ON c.claim_id = t.claim_id
         WHERE c.predicate IN {DECISION_IN_CLAUSE}
-          AND t.valid_from >= '{date_str}'
+          AND t.valid_from >= ?
         ORDER BY t.valid_from ASC
-        LIMIT {limit}
-    """
+        LIMIT ?
+        """,
+        [date_str, limit],
+    )
 
 
-def _handle_decisions_about(q: str, limit: int) -> Optional[str]:
+def _handle_decisions_about(q: str, limit: int) -> Optional[Query]:
     """Detect: 'what did I/we decide about X', 'decisions about X'"""
     m = re.search(
         r"(?:decide|decided|decision).{0,20}(?:about|on|for|regarding)\s+(.+?)(?:\?|$)", q
@@ -239,52 +294,60 @@ def _handle_decisions_about(q: str, limit: int) -> Optional[str]:
         return None
 
     topic = _clean_topic(m.group(1))
-    return f"""
+    like = _like(topic)
+    return (
+        f"""
         SELECT DISTINCT
             c.subject, c.predicate, c.object,
-            t.valid_from AS decided_at,
-            c.shard_id
+            t.valid_from AS decided_at
         FROM claims c
         LEFT JOIN temporal t ON c.claim_id = t.claim_id
         WHERE c.predicate IN {DECISION_IN_CLAUSE}
-          AND (lower(c.object) LIKE '%{topic}%' OR lower(c.subject) LIKE '%{topic}%')
+          AND (lower(c.object) LIKE ? OR lower(c.subject) LIKE ?)
         ORDER BY t.valid_from ASC NULLS LAST
-    """
+        """,
+        [like, like],
+    )
 
 
-def _handle_all_decisions(q: str, limit: int) -> Optional[str]:
+def _handle_all_decisions(q: str, limit: int) -> Optional[Query]:
     """Detect: 'all decisions', 'what decisions', 'list decisions'"""
     if not any(k in q for k in ["all decision", "what decision", "list decision",
                                   "every decision", "our decision"]):
         return None
 
-    return f"""
+    return (
+        f"""
         SELECT
             c.subject, c.predicate, c.object,
-            t.valid_from AS decided_at,
-            c.shard_id
+            t.valid_from AS decided_at
         FROM claims c
         LEFT JOIN temporal t ON c.claim_id = t.claim_id
         WHERE c.predicate IN {DECISION_IN_CLAUSE}
         ORDER BY t.valid_from ASC NULLS LAST
-        LIMIT {limit}
-    """
+        LIMIT ?
+        """,
+        [limit],
+    )
 
 
-def _handle_list_all(q: str, limit: int) -> Optional[str]:
+def _handle_list_all(q: str, limit: int) -> Optional[Query]:
     """Detect: 'all conversations', 'list all', 'show all', 'everything'"""
     if not any(k in q for k in ["all conversations", "list all", "show all", "everything"]):
         return None
 
-    return """
+    return (
+        """
         SELECT DISTINCT subject, object AS title
         FROM claims
         WHERE predicate = 'has_title'
         ORDER BY subject
-    """
+        """,
+        [],
+    )
 
 
-def _handle_topic_query(q: str, limit: int) -> Optional[str]:
+def _handle_topic_query(q: str, limit: int) -> Optional[Query]:
     """Detect: 'about X', 'regarding X', 'related to X'"""
     m = re.search(
         r"(?:about|regarding|related to|involving|mention(?:ing)?)\s+(.+?)(?:\?|$)", q
@@ -293,17 +356,21 @@ def _handle_topic_query(q: str, limit: int) -> Optional[str]:
         return None
 
     topic = _clean_topic(m.group(1))
-    return f"""
+    like = _like(topic)
+    return (
+        """
         SELECT DISTINCT c.subject AS conversation, c2.object AS title
         FROM claims c
         JOIN claims c2 ON c.subject = c2.subject AND c2.predicate = 'has_title'
         WHERE c.predicate = 'has_title'
-           OR (lower(c.object) LIKE '%{topic}%' OR lower(c.subject) LIKE '%{topic}%')
+           OR (lower(c.object) LIKE ? OR lower(c.subject) LIKE ?)
         ORDER BY title
-    """
+        """,
+        [like, like],
+    )
 
 
-def _handle_show_find(q: str, limit: int) -> Optional[str]:
+def _handle_show_find(q: str, limit: int) -> Optional[Query]:
     """Detect: 'show me X', 'find X', 'search X'"""
     m = re.search(
         r"(?:show|find|search|get|list)\s+(?:me\s+)?(?:all\s+)?(.+?)(?:\?|$)", q
@@ -316,17 +383,21 @@ def _handle_show_find(q: str, limit: int) -> Optional[str]:
     if not topic:
         return None
 
-    return f"""
-        SELECT DISTINCT subject, predicate, object, shard_id
+    like = _like(topic)
+    return (
+        """
+        SELECT DISTINCT subject, predicate, object
         FROM claims
-        WHERE lower(object) LIKE '%{topic}%'
-           OR lower(subject) LIKE '%{topic}%'
+        WHERE lower(object) LIKE ?
+           OR lower(subject) LIKE ?
         ORDER BY subject
-        LIMIT {limit}
-    """
+        LIMIT ?
+        """,
+        [like, like, limit],
+    )
 
 
-def _handle_keyword_fallback(q: str, limit: int) -> Optional[str]:
+def _handle_keyword_fallback(q: str, limit: int) -> Optional[Query]:
     """Last resort: keyword search across subject + object columns."""
     _STOP = frozenset({
         "what", "when", "where", "which", "that", "this",
@@ -341,17 +412,28 @@ def _handle_keyword_fallback(q: str, limit: int) -> Optional[str]:
     if not words:
         return None
 
+    selected = words[:4]
+    # One ``(lower(object) LIKE ? OR lower(subject) LIKE ?)`` group per word;
+    # every value is bound, none interpolated.
     conditions = " OR ".join(
-        f"lower(object) LIKE '%{w}%' OR lower(subject) LIKE '%{w}%'"
-        for w in words[:4]
+        "lower(object) LIKE ? OR lower(subject) LIKE ?" for _ in selected
     )
-    return f"""
-        SELECT DISTINCT subject, predicate, object, shard_id
+    params: List[object] = []
+    for w in selected:
+        like = _like(w)
+        params.extend([like, like])
+    params.append(limit)
+
+    return (
+        f"""
+        SELECT DISTINCT subject, predicate, object
         FROM claims
         WHERE {conditions}
         ORDER BY subject
-        LIMIT {limit}
-    """
+        LIMIT ?
+        """,
+        params,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,5 +441,16 @@ def _handle_keyword_fallback(q: str, limit: int) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def _clean_topic(raw: str) -> str:
-    """Strip trailing punctuation and whitespace."""
-    return raw.strip().rstrip("?.,;:").strip()
+    """Strip surrounding whitespace, trailing punctuation, and stray quotes.
+
+    Quotes are stripped purely for cleaner matching; injection safety comes
+    from parameter binding (``_like`` values are bound, never interpolated),
+    not from this sanitization.
+    """
+    cleaned = raw.strip().rstrip("?.,;:").strip()
+    return cleaned.strip("'\"").strip()
+
+
+def _like(topic: str) -> str:
+    """Build a case-insensitive substring LIKE value to bind as a parameter."""
+    return f"%{topic.lower()}%"

@@ -69,18 +69,23 @@ def diff_mounted_shards(
             common = base_ids & delta_ids
             modified = []
             if common:
-                # Use a content hash to detect modifications
-                # Compare by joining on id and checking all columns
+                # Use a content hash to detect modifications by joining on id
+                # and checking all columns. View names and id_col come from a
+                # fixed internal allowlist (mount table names), so they stay as
+                # quoted identifiers; the ID *values* are bound parameters.
+                id_params = list(common)[:500]
+                placeholders = ",".join("?" for _ in id_params)
                 hash_sql = f"""
                     SELECT b.{id_col}
                     FROM "{base_view}" b
                     JOIN "{delta_view}" d ON b.{id_col} = d.{id_col}
-                    WHERE b.{id_col} IN ({','.join(f"'{i}'" for i in list(common)[:500])})
+                    WHERE b.{id_col} IN ({placeholders})
                       AND b != d
                 """
                 try:
-                    modified = sorted(
-                        r[0] for r in engine.query_json(hash_sql).get("rows", []))
+                    with engine._lock:
+                        rows = engine.con.execute(hash_sql, id_params).fetchall()
+                    modified = sorted(r[0] for r in rows)
                 except Exception:
                     modified = []  # best-effort
 

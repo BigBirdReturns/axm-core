@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import duckdb
 
@@ -580,13 +580,13 @@ class SpectraEngine:
                 )
             return {"mounts": mounts}
 
-    def query_json(self, sql: str, *, token_hash: Optional[str] = None) -> Dict[str, Any]:
+    def query_json(self, sql: str, params: Optional[Sequence[Any]] = None, *, token_hash: Optional[str] = None) -> Dict[str, Any]:
         start = time.perf_counter()
         if not is_read_only_sql(sql):
             raise ValueError("Query rejected. Read-only SQL only.")
 
         with self._lock:
-            res = self.con.execute(sql)
+            res = self.con.execute(sql, list(params)) if params else self.con.execute(sql)
             rows = res.fetchall()
             cols = [d[0] for d in (res.description or [])]
 

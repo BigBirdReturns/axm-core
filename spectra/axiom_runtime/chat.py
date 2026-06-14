@@ -39,9 +39,9 @@ class ChatEngine:
 
         if self._engine is not None:
             try:
-                from .nlquery import natural_language_to_sql
-                sql = natural_language_to_sql(question)
-                result = self._engine.query_json(sql)
+                from .nlquery import natural_language_to_query
+                sql, params = natural_language_to_query(question)
+                result = self._engine.query_json(sql, params)
                 self._history.append({"role": "assistant", "content": sql})
                 return result
             except Exception as e:
