@@ -208,6 +208,10 @@ def run_coords_pass(
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Bare on-disk filename: the genesis compiler derives the INV-29 manifest
+    # extension name by appending @1 to the stem (coords -> coords@1). Writing
+    # coords@1.parquet here would double it to coords@1@1. Matches how genesis
+    # writes its own extensions (ext/locators.parquet, ext/temporal.parquet).
     out_path = out_dir / "coords.parquet"
     _write_parquet(out_path, coord_rows)
 

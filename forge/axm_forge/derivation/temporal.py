@@ -165,6 +165,9 @@ def run_temporal_pass(
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Bare on-disk filename: the genesis compiler appends @1 to the stem to
+    # build the INV-29 manifest extension name (temporal -> temporal@1).
+    # A temporal@1.parquet filename would double it to temporal@1@1.
     out_path = out_dir / "temporal.parquet"
     _write_parquet(out_path, rows)
 

@@ -402,7 +402,15 @@ class SpectraEngine:
                     for ext_file in sorted(ext_dir.iterdir()):
                         if ext_file.suffix == ".parquet" and ext_file.is_file():
                             p = ext_file.as_posix().replace("'", "''")
-                            view_name = f"ext_{ext_file.stem}__{mount_prefix}__{sanitize_identifier(shard_id)}"
+                            # Extension files follow the `name@version` filename
+                            # convention (INV-29), e.g. temporal@1.parquet. The
+                            # DuckDB view name must be built from the BASE name
+                            # only: identifiers can't contain `@` unquoted, and
+                            # the union-view prefix match (ext_temporal__, etc.)
+                            # keys on the base name. Files without an @version
+                            # (legacy/forward-compat) keep their full stem.
+                            ext_base = ext_file.stem.split("@", 1)[0]
+                            view_name = f"ext_{ext_base}__{mount_prefix}__{sanitize_identifier(shard_id)}"
                             self.con.execute(
                                 f"CREATE OR REPLACE VIEW {quote_ident(view_name)} AS SELECT * FROM read_parquet('{p}')"
                             )
