@@ -11,7 +11,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import duckdb
 
@@ -83,30 +83,45 @@ class SpectraEngine:
         self._audit = AuditLogger(str(self._audit_path))
         self.catalog = SystemCatalog(str(self._db_path))
 
-        provider = os.environ.get("SPECTRA_EMBED_PROVIDER", "mock")
-        model = os.environ.get("SPECTRA_EMBED_MODEL", "text-embedding-3-small")
-
         if os.environ.get("SPECTRA_CACHE_DEBUG") == "1":
             print(f"[Engine Init] PID: {pid}", file=sys.stderr)
             print(f"[Engine Init] DB Path: {self._db_path}", file=sys.stderr)
             print(f"[Engine Init] Audit Path: {self._audit_path}", file=sys.stderr)
             print(f"[Engine Init] Cache Path: {self._cache_path}", file=sys.stderr)
 
-        self._embedder = Embedder(
-            cache_path=str(self._cache_path),
-            provider=provider,
-            model=model,
-            base_url=os.environ.get("SPECTRA_EMBED_BASE_URL"),
-        )
-        self._index = VectorIndex(self._embedder)
-        self._chat = ChatEngine(
-            self._index,
-            provider=os.environ.get("SPECTRA_CHAT_PROVIDER", "openai"),
-            model=os.environ.get("SPECTRA_CHAT_MODEL", "gpt-4o-mini"),
-            base_url=os.environ.get("SPECTRA_CHAT_BASE_URL"),
-        )
+        # Vector/chat layers are optional derived layers. They are NEVER
+        # constructed at boot; mount/query/audit/nlquery must work without
+        # them. They are lazily initialized by _ensure_retrieval() /
+        # _ensure_chat() only when a semantic-search or chat method is
+        # explicitly invoked.
+        self._embedder: Optional[Embedder] = None
+        self._index: Optional[VectorIndex] = None
+        self._chat_engine: Optional[ChatEngine] = None
 
         self._temp_root_override = temp_root
+
+    def _ensure_retrieval(self) -> VectorIndex:
+        """Lazily construct the optional embedding/vector-index layer.
+
+        Only called from explicit semantic-search/indexing entry points.
+        The deterministic query path never reaches this.
+        """
+        with self._lock:
+            if self._index is None:
+                self._embedder = Embedder(cache_path=str(self._cache_path))
+                self._index = VectorIndex(self._embedder)
+            return self._index
+
+    def _ensure_chat(self) -> ChatEngine:
+        """Lazily construct the optional chat layer.
+
+        Only called from explicit chat entry points. The deterministic
+        query path never reaches this.
+        """
+        with self._lock:
+            if self._chat_engine is None:
+                self._chat_engine = ChatEngine(engine=self)
+            return self._chat_engine
 
     def _verify_constitution(self, shard_dir: Path) -> None:
         """Enforces Genesis Standard conformance using axm-verify.
@@ -287,7 +302,9 @@ class SpectraEngine:
 
     def index_size(self) -> int:
         with self._lock:
-            return self._index.size()
+            if self._index is None:
+                return 0
+            return self._index.size
 
     def mount_shard(
         self,
@@ -385,7 +402,15 @@ class SpectraEngine:
                     for ext_file in sorted(ext_dir.iterdir()):
                         if ext_file.suffix == ".parquet" and ext_file.is_file():
                             p = ext_file.as_posix().replace("'", "''")
-                            view_name = f"ext_{ext_file.stem}__{mount_prefix}__{sanitize_identifier(shard_id)}"
+                            # Extension files follow the `name@version` filename
+                            # convention (INV-29), e.g. temporal@1.parquet. The
+                            # DuckDB view name must be built from the BASE name
+                            # only: identifiers can't contain `@` unquoted, and
+                            # the union-view prefix match (ext_temporal__, etc.)
+                            # keys on the base name. Files without an @version
+                            # (legacy/forward-compat) keep their full stem.
+                            ext_base = ext_file.stem.split("@", 1)[0]
+                            view_name = f"ext_{ext_base}__{mount_prefix}__{sanitize_identifier(shard_id)}"
                             self.con.execute(
                                 f"CREATE OR REPLACE VIEW {quote_ident(view_name)} AS SELECT * FROM read_parquet('{p}')"
                             )
@@ -555,13 +580,13 @@ class SpectraEngine:
                 )
             return {"mounts": mounts}
 
-    def query_json(self, sql: str, *, token_hash: Optional[str] = None) -> Dict[str, Any]:
+    def query_json(self, sql: str, params: Optional[Sequence[Any]] = None, *, token_hash: Optional[str] = None) -> Dict[str, Any]:
         start = time.perf_counter()
         if not is_read_only_sql(sql):
             raise ValueError("Query rejected. Read-only SQL only.")
 
         with self._lock:
-            res = self.con.execute(sql)
+            res = self.con.execute(sql, list(params)) if params else self.con.execute(sql)
             rows = res.fetchall()
             cols = [d[0] for d in (res.description or [])]
 
@@ -581,11 +606,21 @@ class SpectraEngine:
     def index(self, mount_id: Optional[str] = None, token_hash: Optional[str] = None) -> Dict[str, Any]:
         start = time.time()
         with self._lock:
+            index = self._ensure_retrieval()
             targets = [mount_id] if mount_id else list(self._claims.keys())
             total_added = 0
             for mid in targets:
-                claims = self._claims.get(mid, [])
-                total_added += self._index.index_claims(claims)
+                for claim in self._claims.get(mid, []):
+                    claim_id = claim.get("claim_id")
+                    if not claim_id:
+                        continue
+                    text = " ".join(
+                        str(claim[k])
+                        for k in ("subject", "predicate", "object")
+                        if claim.get(k) is not None
+                    )
+                    index.add(str(claim_id), text, metadata={"mount_id": mid, "shard_id": claim.get("shard_id")})
+                    total_added += 1
 
         self._audit.write_event(
             {
@@ -596,13 +631,16 @@ class SpectraEngine:
                 "latency_ms": int((time.time() - start) * 1000),
             }
         )
-        return {"status": "ok", "indexed": total_added, "index_size": self._index.size()}
+        return {"status": "ok", "indexed": total_added, "index_size": self.index_size()}
 
     def chat(self, question: str, top_k: int = 7, token_hash: Optional[str] = None) -> Dict[str, Any]:
+        # Note: the current ChatEngine does not support top_k; the parameter
+        # is accepted for API compatibility but ignored by the stub.
         start = time.time()
         with self._lock:
+            chat_engine = self._ensure_chat()
             active_mounts = sorted(list(self._mount_specs.keys()))
-            res = self._chat.ask(question, top_k=top_k)
+            res = chat_engine.ask(question)
 
         self._audit.write_event(
             {

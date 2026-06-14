@@ -13,6 +13,15 @@ ARCHITECTURE:
                                                                        └── blobs/
 
 KEY INSIGHT: GraphKDF derives keys from topology. Change the graph = different keys.
+
+ENVELOPE CONTENTS: data files are encrypted per-partition into blobs/. The
+shard's public integrity metadata — top-level manifest.json and the sig/
+directory (publisher.pub + signature) — is NOT a secret: it is exactly what
+lets a recipient verify the Genesis seal. Those files travel in the envelope
+as PLAINTEXT "passthrough" blobs (listed under envelope.json's "passthrough"
+key) and are restored byte-identical on decrypt, so a decrypted shard can be
+verified and mounted. Envelopes written before this field existed simply have
+no "passthrough" entry and still decrypt as before.
 """
 
 from __future__ import annotations
@@ -31,16 +40,24 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# Import from frozen GraphKDF package
-from graphkdf import (
-    derive_keys,
-    Edge,
-    v2_legacy_delimited,
-    v3_length_prefixed,
-)
-
 # Clarion's domain for GraphKDF
 CLARION_DOMAIN = b"axm-clarion"
+
+# graphkdf is an optional dependency (not on PyPI). It is imported lazily so
+# that `import clarion` works without it; encryption/decryption paths call
+# _require_graphkdf() and fail with a clear error if it is absent.
+_GRAPHKDF_HINT = (
+    "graphkdf is required for Clarion encryption — install clarion[kdf]"
+)
+
+
+def _require_graphkdf():
+    """Import the frozen GraphKDF package, raising a clear error if absent."""
+    try:
+        import graphkdf
+    except ImportError as e:
+        raise ImportError(_GRAPHKDF_HINT) from e
+    return graphkdf
 
 
 # ============================================================================
@@ -53,6 +70,7 @@ def extract_edges_from_claims(claims: List[Dict[str, Any]]) -> List[Edge]:
     Genesis claims have: subject, predicate, object, object_type
     We extract (subject, predicate, object) as edges.
     """
+    Edge = _require_graphkdf().Edge
     edges = []
     
     for claim in claims:
@@ -68,6 +86,7 @@ def extract_edges_from_claims(claims: List[Dict[str, Any]]) -> List[Edge]:
 
 def extract_edges_from_parquet(claims_parquet: Path) -> List[Edge]:
     """Extract edges from Genesis claims.parquet file."""
+    Edge = _require_graphkdf().Edge
     try:
         import duckdb
         con = duckdb.connect(":memory:")
@@ -138,8 +157,25 @@ class Partition:
 
 
 @dataclass
+class PassthroughFile:
+    """A plaintext (unencrypted) passthrough file entry.
+
+    Used for the shard's public integrity metadata (top-level manifest.json
+    and the sig/ directory). The blob in blobs/ is the plaintext itself;
+    blob_hash is the SHA-256 of those bytes.
+    """
+    path: str
+    blob_hash: str
+
+
+@dataclass
 class ClarionEnvelope:
-    """Clarion v2.0 envelope with GraphKDF."""
+    """Clarion v2.0 envelope with GraphKDF.
+
+    `passthrough` lists plaintext blobs (manifest.json, sig/*) restored
+    byte-identical on decrypt. Envelopes written before this field existed
+    have no "passthrough" key and decrypt exactly as before.
+    """
     envelope_id: str
     shard_id: str
     genesis_merkle_root: str
@@ -150,9 +186,10 @@ class ClarionEnvelope:
     partitions: List[Partition]
     files_digest_b64: str
     created_at: str
-    
+    passthrough: List[PassthroughFile] = field(default_factory=list)
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "clarion_version": "2.0",
             "envelope_id": self.envelope_id,
             "shard_id": self.shard_id,
@@ -187,7 +224,15 @@ class ClarionEnvelope:
             "files_digest_sha256_b64": self.files_digest_b64,
             "created_at": self.created_at,
         }
-    
+        if self.passthrough:
+            # Plaintext passthrough files (public integrity metadata).
+            # Omitted entirely when empty for backward compatibility.
+            d["passthrough"] = [
+                {"path": e.path, "blob_hash": e.blob_hash, "encrypted": False}
+                for e in self.passthrough
+            ]
+        return d
+
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "ClarionEnvelope":
         kdf = d.get("kdf", {})
@@ -219,6 +264,10 @@ class ClarionEnvelope:
             partitions=partitions,
             files_digest_b64=d.get("files_digest_sha256_b64", ""),
             created_at=d.get("created_at", ""),
+            passthrough=[
+                PassthroughFile(path=e["path"], blob_hash=e["blob_hash"])
+                for e in d.get("passthrough", [])
+            ],
         )
 
 
@@ -289,6 +338,8 @@ def encrypt_shard(
     Returns:
         (envelope_path, envelope_object)
     """
+    graphkdf = _require_graphkdf()
+
     # Load manifest
     manifest_path = shard_path / "manifest.json"
     if not manifest_path.exists():
@@ -304,15 +355,15 @@ def encrypt_shard(
     
     # Select topology hash function
     if topology_hash_version == "v3":
-        hash_fn = v3_length_prefixed
+        hash_fn = graphkdf.v3_length_prefixed
     else:
-        hash_fn = v2_legacy_delimited
-    
+        hash_fn = graphkdf.v2_legacy_delimited
+
     # Derive keys using GraphKDF
     colors = colors or ["Green"]
     salt = secrets.token_bytes(32)
-    
-    result = derive_keys(
+
+    result = graphkdf.derive_keys(
         edges,
         user_secret,
         salt=salt,
@@ -333,11 +384,31 @@ def encrypt_shard(
         envelope_dir = shard_path.parent / f"{shard_path.name}-envelope"
     envelope_dir.mkdir(parents=True, exist_ok=True)
     (envelope_dir / "blobs").mkdir(exist_ok=True)
-    
+
+    # Passthrough: the shard's public integrity metadata (top-level
+    # manifest.json and the sig/ directory) is not a secret — it is exactly
+    # what lets a recipient verify the Genesis seal. It travels in the
+    # envelope as plaintext blobs and is restored byte-identical on decrypt.
+    passthrough: List[PassthroughFile] = []
+    passthrough_sources = [manifest_path]
+    sig_dir = shard_path / "sig"
+    if sig_dir.is_dir():
+        passthrough_sources.extend(
+            sorted(p for p in sig_dir.rglob("*") if p.is_file())
+        )
+    for src in passthrough_sources:
+        data = src.read_bytes()
+        blob_hash = hashlib.sha256(data).hexdigest()
+        (envelope_dir / "blobs" / blob_hash).write_bytes(data)
+        passthrough.append(PassthroughFile(
+            path=src.relative_to(shard_path).as_posix(),
+            blob_hash=blob_hash,
+        ))
+
     # Encrypt files
     partitions = []
     file_color_map = file_color_map or {}
-    
+
     for color in colors:
         partition_key = result.partition_keys[color]
         aesgcm = AESGCM(partition_key)
@@ -350,14 +421,19 @@ def encrypt_shard(
         
         # Collect files for this partition
         for root, dirs, files in os.walk(shard_path):
-            # Skip sig directory
-            if "sig" in root:
+            rel_root = Path(root).relative_to(shard_path)
+            # Skip only the top-level sig/ directory (passthrough). Compare
+            # path components, not substrings: directories that merely
+            # contain "sig" in their name (signals/, design/) are encrypted
+            # like any other data.
+            if rel_root.parts and rel_root.parts[0] == "sig":
                 continue
-                
+
             for filename in files:
-                if filename == "manifest.json":
+                # Only the top-level manifest.json is passthrough
+                if filename == "manifest.json" and not rel_root.parts:
                     continue
-                    
+
                 file_path = Path(root) / filename
                 rel_path = file_path.relative_to(shard_path).as_posix()
                 
@@ -404,6 +480,7 @@ def encrypt_shard(
         partitions=partitions,
         files_digest_b64=_compute_files_digest(partitions),
         created_at=datetime.now(timezone.utc).isoformat(),
+        passthrough=passthrough,
     )
     
     # Write envelope.json
@@ -484,6 +561,7 @@ def _decrypt_v2(
     verify_topology: bool,
 ) -> Tuple[Path, List[str]]:
     """Decrypt Clarion v2.0 envelope."""
+    graphkdf = _require_graphkdf()
     envelope = ClarionEnvelope.from_dict(envelope_data)
     
     # Verify files_digest
@@ -494,9 +572,9 @@ def _decrypt_v2(
     
     # Select hash function based on version
     if envelope.topology_hash_version == "v3":
-        hash_fn = v3_length_prefixed
+        hash_fn = graphkdf.v3_length_prefixed
     else:
-        hash_fn = v2_legacy_delimited
+        hash_fn = graphkdf.v2_legacy_delimited
     
     # We need edges to derive keys, but we only have topology_hash in envelope
     # So we derive with the stored topology_hash directly
@@ -507,8 +585,7 @@ def _decrypt_v2(
     colors = colors_to_decrypt or [p.color for p in envelope.partitions]
     
     # Use GraphKDF with stored topology hash
-    from graphkdf import GraphKDFParams
-    kdf_params = GraphKDFParams(
+    kdf_params = graphkdf.GraphKDFParams(
         user_secret=user_secret,
         salt=salt,
         epoch=envelope.kdf_epoch,
@@ -574,7 +651,27 @@ def _decrypt_v2(
                 dest.write_bytes(plaintext)
             
             decrypted_colors.append(partition.color)
-        
+
+        # Restore plaintext passthrough files (top-level manifest.json and
+        # sig/) byte-identical, so the decrypted shard can be verified
+        # against its Genesis seal and mounted. Envelopes written before
+        # the "passthrough" field existed have no entries here and decrypt
+        # exactly as before.
+        for entry in envelope.passthrough:
+            blob_path = envelope_path / "blobs" / entry.blob_hash
+            if not blob_path.exists():
+                raise ClarionDecryptionError(
+                    f"Missing passthrough blob: {entry.blob_hash}"
+                )
+            data = blob_path.read_bytes()
+            if hashlib.sha256(data).hexdigest() != entry.blob_hash:
+                raise ClarionDecryptionError(
+                    f"Passthrough hash mismatch: {entry.path}"
+                )
+            dest = shard_dir / entry.path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+
         # Verify topology if requested
         if verify_topology and (shard_dir / "graph" / "claims.parquet").exists():
             edges = extract_edges_from_parquet(shard_dir / "graph" / "claims.parquet")

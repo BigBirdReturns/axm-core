@@ -17,6 +17,11 @@ axm-genesis  ←  axm-core  ←  spokes
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
 | **Nodal Flow** | [separate repo](https://github.com/BigBirdReturns/nodalflow) | Desktop UI (Tauri + Svelte + DuckDB) |
 
+Sub-packages (`forge/`, `spectra/`, `clarion/`) are versioned **independently** of the
+`axm-core` root and of each other — each carries its own `version` in its own
+`pyproject.toml`. The root `axm-core` version does not track them, and the only
+version they all agree on is the pinned `axm-genesis` dependency.
+
 ## Dependency graph
 
 ```
@@ -70,11 +75,10 @@ python forge_run.py --input ./my_docs/ --output ./out/my_shard/
 # Checkpoints automatically. Rerun same command to resume.
 ```
 
-### Single article from Wikipedia
+### Single article
 
 ```bash
-python nodal_run.py "Tranexamic acid"
-python nodal_run.py --source my_document.txt --out-dir out/my_doc
+python forge_run.py --input ./my_article.txt --output ./out/my_doc/ --skip-llm
 ```
 
 ## Installing sub-components separately
@@ -104,7 +108,6 @@ See `INVARIANTS.md` for absolute constraints on all changes.
 |------|---------|
 | `pyproject.toml` | Root package — declares axm-genesis dependency |
 | `forge_run.py` | Documents → signed shard pipeline |
-| `nodal_run.py` | Single-article pipeline (Wikipedia → shard) |
 | `integration_test.py` | End-to-end test: forge → genesis → verify → clarion → spectra |
 | `INVARIANTS.md` | Absolute constraints |
 | `EXTENSIONS_REGISTRY.md` | Extension Parquet schemas |

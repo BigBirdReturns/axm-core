@@ -1,9 +1,11 @@
 """
 Coords Derivation Pass — ext/coords.parquet (coords@1)
 
-Assigns 8-category semantic coordinates to entities extracted into compiled shards.
-Reads the compiled shard's graph/entities.parquet, classifies each entity label
-into the MM-TT-SS coordinate space, writes ext/coords.parquet.
+Assigns 8-category semantic coordinates to entities destined for compiled shards.
+Reads candidates.jsonl (pre-compile), recomputes the Genesis entity IDs the
+compiler will assign, classifies each entity label into the MM-TT-SS
+coordinate space, and writes coords.parquet into a staging directory that the
+compile step injects into the shard's ext/ before sealing.
 
 Coordinate schema (from axm-kg coords.py, frozen at v0.5):
   Major categories:
@@ -11,10 +13,8 @@ Coordinate schema (from axm-kg coords.py, frozen at v0.5):
     5=Location, 6=Time, 7=Quantity, 8=Abstract
 
   Format: entity_id, major (str), type (str), subtype (str), instance (str)
-  Joins to entities.parquet via entity_id.
-
-Can run on a compiled shard directory (after Genesis compilation)
-or on entities.parquet directly.
+  Joins to graph/entities.parquet via entity_id (Genesis IDs, see
+  axm_verify.identity.recompute_entity_id).
 """
 from __future__ import annotations
 
@@ -131,29 +131,58 @@ def _classify_label(label: str) -> Tuple[int, int, int]:
     return (8, 4, 1)
 
 
-def run_coords_pass(shard_dir: Path) -> Dict[str, Any]:
+def run_coords_pass(
+    candidates_path: Path,
+    *,
+    namespace: str,
+    out_dir: Path,
+) -> Dict[str, Any]:
     """
-    Read compiled shard's graph/entities.parquet, assign coords,
-    write ext/coords.parquet.
+    Derive entity coordinates BEFORE Genesis compilation, writing
+    coords.parquet into out_dir (a staging directory; the compile step
+    injects it into the shard's ext/ before the Merkle root is computed,
+    so the extension is covered by the seal).
+
+    Entity IDs are recomputed exactly as the Genesis compiler computes them
+    (axm_verify.identity.recompute_entity_id over the same labels its
+    entity pass collects from candidates.jsonl), so every entity_id here
+    matches the sealed graph/entities.parquet (INV-7/27 — Genesis owns
+    identity, forge delegates).
 
     Returns stats dict.
     """
-    entities_path = shard_dir / "graph" / "entities.parquet"
-    if not entities_path.exists():
-        return {"rows": 0, "written": False, "reason": "entities.parquet not found"}
+    # INV-7/27: entity identity is owned by Genesis. Delegate, never reimplement.
+    from axm_verify.identity import recompute_entity_id
 
-    try:
-        import duckdb
-        con = duckdb.connect()
-        rows_raw = con.execute(
-            f"SELECT entity_id, label FROM read_parquet('{entities_path}')"
-        ).fetchall()
-        con.close()
-    except Exception as e:
-        return {"rows": 0, "written": False, "reason": str(e)}
+    candidates_path = Path(candidates_path)
+    if not candidates_path.exists():
+        return {"rows": 0, "written": False, "reason": "candidates.jsonl not found"}
 
-    if not rows_raw:
+    # Mirror axm_build.compiler_generic.compile_generic_shard pass 1 exactly:
+    # every non-empty subject label, plus object labels of entity-typed objects.
+    entities: Dict[str, str] = {}
+    with candidates_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            c = json.loads(line)
+            subj = str(c.get("subject", "")).strip()
+            if not subj:
+                continue
+            entities[subj] = recompute_entity_id(namespace, subj)
+            if c.get("object_type", "entity") == "entity":
+                obj = str(c.get("object", "")).strip()
+                if obj:
+                    entities[obj] = recompute_entity_id(namespace, obj)
+
+    if not entities:
         return {"rows": 0, "written": False, "reason": "no entities"}
+
+    # Sort by entity_id to match the deterministic order of the sealed
+    # graph/entities.parquet (instance counters stay reproducible).
+    rows_raw = sorted(((eid, label) for label, eid in entities.items()),
+                      key=lambda x: x[0])
 
     # Count instances per (major, type, subtype) for the instance counter
     instance_counters: Dict[Tuple[int, int, int], int] = defaultdict(int)
@@ -177,9 +206,13 @@ def run_coords_pass(shard_dir: Path) -> Dict[str, Any]:
             "instance": instance_str,
         })
 
-    ext_dir = shard_dir / "ext"
-    ext_dir.mkdir(exist_ok=True)
-    out_path = ext_dir / "coords.parquet"
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Bare on-disk filename: the genesis compiler derives the INV-29 manifest
+    # extension name by appending @1 to the stem (coords -> coords@1). Writing
+    # coords@1.parquet here would double it to coords@1@1. Matches how genesis
+    # writes its own extensions (ext/locators.parquet, ext/temporal.parquet).
+    out_path = out_dir / "coords.parquet"
     _write_parquet(out_path, coord_rows)
 
     return {"rows": len(coord_rows), "written": True, "path": str(out_path)}

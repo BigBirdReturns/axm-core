@@ -42,7 +42,19 @@ class ChatRequest(BaseModel):
 
 def require_token(x_spectra_token: Optional[str] = Header(default=None)) -> None:
     if not _API_TOKEN:
-        return
+        # Fail closed: an unset token means the endpoint is unauthenticated.
+        # Only allow this in the established dev-mode convention.
+        if os.environ.get("SPECTRA_DEV_MODE") == "1":
+            print(
+                "[WARNING] SPECTRA_TOKEN is unset; allowing request because "
+                "SPECTRA_DEV_MODE=1. Never run this way in production.",
+                file=sys.stderr,
+            )
+            return
+        raise HTTPException(
+            status_code=401,
+            detail="Spectra auth not configured. Set SPECTRA_TOKEN (or SPECTRA_DEV_MODE=1 for local dev).",
+        )
     if x_spectra_token != _API_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid Spectra Token")
 

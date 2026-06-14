@@ -19,7 +19,7 @@ Install chain:
 
 ```bash
 pip install axm-embodied
-# pulls axm-core@v1.0.0 automatically
+# pulls axm-core@v1.1.0 automatically
 # which pulls axm-genesis@v1.2.0 automatically
 # axm_build.*, axm_verify.* resolve from genesis
 ```
@@ -33,9 +33,11 @@ The frozen cryptographic protocol. Nothing in the stack changes this without an 
 | Package | Purpose |
 |---------|---------|
 | `axm_build` | Compiler, Merkle tree, signing, manifest |
-| `axm_verify` | Verifier, error codes, Parquet schemas |
-| `axm_extract` | Document ingestion and chunking |
-| `axm_judge` | Stream judge interface |
+| `axm_verify` | Verifier, error codes, Parquet schemas, identity (`recompute_entity_id`/`recompute_claim_id`) |
+
+The kernel is **only** `axm_build` + `axm_verify`. Document ingestion, extraction,
+chunking, and stream judging are **not** part of genesis — they live in core/forge
+(see Forge below).
 
 **Key constraint:** `axm_verify.const.ErrorCode` is additive-only. Existing codes are never renamed or removed. Shards from any version must verify under any newer verifier.
 
@@ -50,7 +52,7 @@ Orchestration tooling. Declares `axm-genesis` as a pinned dependency and re-expo
 | **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
 | **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
-| **Nodal Flow** | `nodalflow/` | Desktop UI (Tauri + Svelte + DuckDB) |
+| **Nodal Flow** | separate repo | Desktop UI (Tauri + Svelte + DuckDB) — not in this repo |
 
 **Key constraint:** Forge, Spectra, and Clarion each have their own `pyproject.toml`. Install them separately if needed. The root `pip install axm-core` exposes only the registry package and the transitive genesis dependency.
 
@@ -104,7 +106,10 @@ Step 3 — Inject binary files and reseal  (only if spoke has binary content fil
     # See axm-embodied::_inject_latents_and_reseal() for the pattern.
 
 Step 4 — Write domain extension data to ext/  (optional)
-    pq.write_table(table, shard / "ext" / "yourdata@1.parquet")
+    # On-disk filename is BARE (no @version). The genesis compiler derives the
+    # INV-29 logical name by appending @1 to the stem and records it in the
+    # manifest's `extensions` list (yourdata.parquet -> "yourdata@1").
+    pq.write_table(table, shard / "ext" / "yourdata.parquet")
 ```
 
 ---
@@ -121,7 +126,7 @@ Source document / sensor stream / API response
   [Spoke: Step 3 — binary inject + reseal]  (if needed)
         ↓ shard/ (PASS with binary files)
   [Spoke: Step 4 — ext/ domain data]
-        ↓ ext/streams@1.parquet etc.
+        ↓ ext/streams.parquet etc.  (bare filename; manifest records "streams@1")
   [axm_verify.logic — self-verification gate]
         ↓ status: PASS
   [Clarion] → encrypted envelope  (optional)
