@@ -8,7 +8,7 @@ ARCHITECTURE:
                                     
   Genesis Shard ──▶ Extract Edges ──▶ GraphKDF ──▶ Partition Keys ──▶ Encrypt Files
         │                                │                                  │
-    claims.parquet              topology_hash                          envelope/
+    claims.jsonl                topology_hash                          envelope/
                                 (in envelope)                          ├── envelope.json
                                                                        └── blobs/
 
@@ -84,14 +84,27 @@ def extract_edges_from_claims(claims: List[Dict[str, Any]]) -> List[Edge]:
     return edges
 
 
+def extract_edges_from_jsonl(claims_jsonl: Path) -> List[Edge]:
+    """Extract edges from a Genesis v1 graph/claims.jsonl table."""
+    try:
+        claims = [
+            json.loads(line)
+            for line in claims_jsonl.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        return extract_edges_from_claims(claims)
+    except Exception:
+        return []
+
+
 def extract_edges_from_parquet(claims_parquet: Path) -> List[Edge]:
-    """Extract edges from Genesis claims.parquet file."""
+    """Extract edges from a legacy (v0.x prototype) claims.parquet file."""
     Edge = _require_graphkdf().Edge
     try:
         import duckdb
         con = duckdb.connect(":memory:")
         rows = con.execute(f"""
-            SELECT subject, predicate, object 
+            SELECT subject, predicate, object
             FROM read_parquet('{claims_parquet}')
         """).fetchall()
         return [Edge(subject=r[0], predicate=r[1], object=r[2]) for r in rows]
@@ -346,12 +359,24 @@ def encrypt_shard(
         raise ValueError("Not a valid Genesis shard: missing manifest.json")
     
     manifest = json.loads(manifest_path.read_text())
-    shard_id = manifest.get("shard_id", "unknown")
     merkle_root = manifest.get("integrity", {}).get("merkle_root", "")
-    
-    # Extract edges from claims
-    claims_path = shard_path / "graph" / "claims.parquet"
-    edges = extract_edges_from_parquet(claims_path) if claims_path.exists() else []
+    # Genesis v1: shard identity is derived from the manifest bytes, never
+    # stored in the manifest (spec section 9).
+    try:
+        import blake3
+        shard_id = "sh1_" + blake3.blake3(manifest_path.read_bytes()).hexdigest()
+    except Exception:
+        shard_id = manifest.get("shard_id", "unknown")  # v0.x prototype fallback
+
+    # Extract edges from claims (v1 canonical JSONL; legacy parquet fallback)
+    claims_jsonl = shard_path / "graph" / "claims.jsonl"
+    claims_parquet = shard_path / "graph" / "claims.parquet"
+    if claims_jsonl.exists():
+        edges = extract_edges_from_jsonl(claims_jsonl)
+    elif claims_parquet.exists():
+        edges = extract_edges_from_parquet(claims_parquet)
+    else:
+        edges = []
     
     # Select topology hash function
     if topology_hash_version == "v3":
@@ -673,8 +698,13 @@ def _decrypt_v2(
             dest.write_bytes(data)
 
         # Verify topology if requested
-        if verify_topology and (shard_dir / "graph" / "claims.parquet").exists():
-            edges = extract_edges_from_parquet(shard_dir / "graph" / "claims.parquet")
+        claims_jsonl = shard_dir / "graph" / "claims.jsonl"
+        claims_parquet = shard_dir / "graph" / "claims.parquet"
+        if verify_topology and (claims_jsonl.exists() or claims_parquet.exists()):
+            if claims_jsonl.exists():
+                edges = extract_edges_from_jsonl(claims_jsonl)
+            else:
+                edges = extract_edges_from_parquet(claims_parquet)
             actual_topo = hash_fn(edges)
             if actual_topo != topology_hash:
                 raise ClarionDecryptionError(

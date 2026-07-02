@@ -9,7 +9,7 @@ Clarion encrypts AXM Genesis shards with keys derived from graph topology. Chang
 ```bash
 pip install clarion
 
-# With parquet support
+# With duckdb (legacy v0.x parquet shard support)
 pip install clarion[full]
 ```
 
@@ -39,10 +39,10 @@ shard_path, colors = decrypt_envelope(
 ```
 Genesis Shard ──▶ Extract Edges ──▶ GraphKDF ──▶ Partition Keys ──▶ Encrypt
       │                                 │
-  claims.parquet              topology_hash (in envelope)
+  claims.jsonl                topology_hash (in envelope)
 ```
 
-1. Clarion extracts edges from the shard's `claims.parquet`
+1. Clarion extracts edges from the shard's `graph/claims.jsonl` (canonical JSONL; legacy v0.x `claims.parquet` still readable)
 2. GraphKDF derives keys bound to the topology hash
 3. Files are encrypted with AES-256-GCM
 4. Envelope stores encrypted blobs + metadata
@@ -140,7 +140,7 @@ and envelopes produced before the passthrough section was added.
 
 - **graphkdf**: Topology-bound key derivation (frozen primitive)
 - **cryptography**: AES-256-GCM encryption
-- **duckdb** (optional): For reading parquet files
+- **duckdb** (optional): For reading legacy v0.x parquet shards
 
 ## License
 

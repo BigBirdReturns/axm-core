@@ -1,11 +1,16 @@
 """
-Coords Derivation Pass — ext/coords.parquet (coords@1)
+Coords Derivation Pass — coords.parquet (local derived cache)
 
-Assigns 8-category semantic coordinates to entities destined for compiled shards.
-Reads candidates.jsonl (pre-compile), recomputes the Genesis entity IDs the
-compiler will assign, classifies each entity label into the MM-TT-SS
-coordinate space, and writes coords.parquet into a staging directory that the
-compile step injects into the shard's ext/ before sealing.
+Assigns 8-category semantic coordinates to entities destined for compiled
+shards. Reads candidates.jsonl (pre-compile), recomputes the Genesis entity
+IDs the compiler will assign, classifies each entity label into the MM-TT-SS
+coordinate space, and writes coords.parquet into a DERIVED-CACHE directory
+that lives OUTSIDE the shard.
+
+coords is NOT a Genesis v1 kernel-registry extension (those are lineage@1,
+references@1, temporal@1, locators@1 — all compiler-emitted canonical
+JSONL). v1 shards carry no Parquet and no injected ext/ files; this output
+is a rebuildable runtime artifact only.
 
 Coordinate schema (from axm-kg coords.py, frozen at v0.5):
   Major categories:
@@ -13,7 +18,7 @@ Coordinate schema (from axm-kg coords.py, frozen at v0.5):
     5=Location, 6=Time, 7=Quantity, 8=Abstract
 
   Format: entity_id, major (str), type (str), subtype (str), instance (str)
-  Joins to graph/entities.parquet via entity_id (Genesis IDs, see
+  Joins to graph/entities.jsonl via entity_id (Genesis IDs, see
   axm_verify.identity.recompute_entity_id).
 """
 from __future__ import annotations
@@ -139,14 +144,13 @@ def run_coords_pass(
 ) -> Dict[str, Any]:
     """
     Derive entity coordinates BEFORE Genesis compilation, writing
-    coords.parquet into out_dir (a staging directory; the compile step
-    injects it into the shard's ext/ before the Merkle root is computed,
-    so the extension is covered by the seal).
+    coords.parquet into out_dir — a LOCAL DERIVED CACHE directory that
+    must stay outside any shard (v1 shards carry no Parquet).
 
     Entity IDs are recomputed exactly as the Genesis compiler computes them
     (axm_verify.identity.recompute_entity_id over the same labels its
     entity pass collects from candidates.jsonl), so every entity_id here
-    matches the sealed graph/entities.parquet (INV-7/27 — Genesis owns
+    matches the sealed graph/entities.jsonl (INV-7/27 — Genesis owns
     identity, forge delegates).
 
     Returns stats dict.
@@ -180,7 +184,7 @@ def run_coords_pass(
         return {"rows": 0, "written": False, "reason": "no entities"}
 
     # Sort by entity_id to match the deterministic order of the sealed
-    # graph/entities.parquet (instance counters stay reproducible).
+    # graph/entities.jsonl (instance counters stay reproducible).
     rows_raw = sorted(((eid, label) for label, eid in entities.items()),
                       key=lambda x: x[0])
 
@@ -208,10 +212,7 @@ def run_coords_pass(
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Bare on-disk filename: the genesis compiler derives the INV-29 manifest
-    # extension name by appending @1 to the stem (coords -> coords@1). Writing
-    # coords@1.parquet here would double it to coords@1@1. Matches how genesis
-    # writes its own extensions (ext/locators.parquet, ext/temporal.parquet).
+    # Derived cache only — this file must stay outside any shard directory.
     out_path = out_dir / "coords.parquet"
     _write_parquet(out_path, coord_rows)
 

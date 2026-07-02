@@ -12,9 +12,11 @@ Flow:
 7) DuckDB query returns claims
 
 Assumptions:
-- You have installed axm-genesis: `pip install axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@v1.2.0`
+- You have installed axm-genesis v1 (the commit pinned in pyproject.toml)
+  with an ML-DSA-44 backend (extras: [mldsa] for liboqs, [mldsa-compat]
+  for dilithium-py)
 - You have installed clarion-v2.0.0 (GraphKDF) OR you set PYTHONPATH accordingly
-- Required deps: blake3, cryptography, pyarrow (or your local Genesis build includes them)
+- Required deps: blake3, cryptography
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from pathlib import Path
 
 # --- Imports from stack (expect PYTHONPATH or installed packages) ---
 from axm_build.compiler_generic import CompilerConfig, compile_generic_shard
-from axm_build.sign import mldsa44_keygen
+from axm_build.sign import hybrid1_keygen
 from axm_verify.logic import verify_shard
 
 # Clarion is optional: it is a separate install (`pip install -e ./clarion`)
@@ -100,10 +102,9 @@ def main() -> int:
                 p.unlink()
     shard_dir.mkdir(parents=True, exist_ok=True)
 
-    # Throwaway ML-DSA-44 keypair for the default axm-blake3-mldsa44 suite,
-    # passed in the canonical sk||pk (3840-byte) format.
-    kp = mldsa44_keygen()
-    private_key = kp.secret_key + kp.public_key
+    # Throwaway axm-hybrid1 keypair (Ed25519 || ML-DSA-44). The secret is
+    # the 3904-byte blob the v1 compiler requires; the public key is 1344 B.
+    _public_key, private_key = hybrid1_keygen()
 
     compiler_cfg = CompilerConfig(
         source_path=source_txt,
@@ -114,6 +115,8 @@ def main() -> int:
         publisher_name=cfg.publisher_name,
         namespace=cfg.namespace,
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        title="AXM Integration Test Shard",
+        license_spdx="CC0-1.0",
     )
 
     ok = compile_generic_shard(compiler_cfg)

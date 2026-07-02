@@ -836,101 +836,68 @@ def compile_shard(
     shard_dir: Path,
     namespace: str,
     title: str,
-    suite: str = "axm-blake3-mldsa44",
+    license_spdx: str = "UNLICENSED",
     supersedes: tuple = (),
-    domain_hints: str = "",
-    extra_ext_files: Optional[List[Path]] = None,
 ) -> bool:
-    """Compile candidates into a signed Genesis shard.
+    """Compile candidates into a signed Genesis v1 shard (axm-hybrid1).
 
-    extra_ext_files: pre-derived extension parquet files (e.g. coords.parquet,
-    temporal.parquet) that must be injected into the shard's ext/ directory
-    BEFORE the Merkle root is computed, so they are covered by the seal.
-    Nothing may write into the shard directory after this function returns.
+    Extension tables (temporal@1, lineage@1, locators@1, references@1) are
+    emitted by the compiler itself from per-candidate keys and the
+    supersedes argument — nothing is injected into the shard directory,
+    which is sealed by a single Merkle pass.
     """
-    import dataclasses
-    import axm_build.compiler_generic as _compiler_mod
     from axm_build.compiler_generic import CompilerConfig, compile_generic_shard
-    from axm_build.sign import mldsa44_keygen
+    from axm_build.sign import (
+        HYBRID1_PK_LEN,
+        HYBRID1_SK_LEN,
+        hybrid1_keygen,
+        hybrid1_public_key,
+    )
 
-    # Generate PQ keypair (or load from config)
+    # Load or generate the axm-hybrid1 publisher keypair. Key pools are
+    # suite-aware: key material of an unexpected size raises — never a
+    # silent fallback to a fresh key.
     key_dir = shard_dir.parent / "keys"
     key_dir.mkdir(parents=True, exist_ok=True)
-    sk_path = key_dir / "publisher.sk"
+    sk_path = key_dir / "publisher.key"
     pk_path = key_dir / "publisher.pub"
 
     if sk_path.exists() and pk_path.exists():
-        sk = sk_path.read_bytes()
+        private_key = sk_path.read_bytes()
         pk = pk_path.read_bytes()
-        log(f"  Using existing keypair from {key_dir}", "dim")
+        if len(private_key) != HYBRID1_SK_LEN or len(pk) != HYBRID1_PK_LEN:
+            raise ValueError(
+                f"Key pool {key_dir} holds non-hybrid1 key material "
+                f"(secret {len(private_key)} B, public {len(pk)} B; expected "
+                f"{HYBRID1_SK_LEN}/{HYBRID1_PK_LEN}). v0.x keys cannot sign v1 "
+                "shards — regenerate with `axm-build keygen`."
+            )
+        if hybrid1_public_key(private_key) != pk:
+            raise ValueError(f"Key pool {key_dir}: publisher.pub does not match publisher.key")
+        log(f"  Using existing hybrid1 keypair from {key_dir}", "dim")
     else:
-        if suite == "axm-blake3-mldsa44":
-            kp = mldsa44_keygen()
-            sk = kp.secret_key
-            pk = kp.public_key
-        else:
-            from nacl.signing import SigningKey
-            ed_sk = SigningKey.generate()
-            sk = bytes(ed_sk)
-            pk = bytes(ed_sk.verify_key)
-        sk_path.write_bytes(sk)
+        pk, private_key = hybrid1_keygen()
+        sk_path.write_bytes(private_key)
+        sk_path.chmod(0o600)
         pk_path.write_bytes(pk)
-        log(f"  Generated new keypair in {key_dir}", "ok")
-
-    # Build key blob
-    if suite == "axm-blake3-mldsa44":
-        private_key = sk + pk  # 3840 bytes
-    else:
-        private_key = sk
+        log(f"  Generated new axm-hybrid1 keypair in {key_dir}", "ok")
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    cfg_kwargs = {
-        "source_path": source_path,
-        "candidates_path": candidates_path,
-        "out_dir": shard_dir,
-        "private_key": private_key,
-        "publisher_id": "@jonathan",
-        "publisher_name": "Jonathan",
-        "namespace": namespace,
-        "created_at": now,
-        "suite": suite,
-        "supersedes": supersedes,
-        "domain_hints": domain_hints,
-    }
-    # Only pass fields the installed Genesis CompilerConfig supports
-    # (axm-genesis 1.2.0 has no supersedes/domain_hints fields).
-    supported = {f.name for f in dataclasses.fields(CompilerConfig)}
-    dropped = [k for k, v in cfg_kwargs.items() if k not in supported and v]
-    if dropped:
-        log(f"  Note: installed Genesis compiler ignores: {', '.join(dropped)}", "warn")
-    cfg = CompilerConfig(**{k: v for k, v in cfg_kwargs.items() if k in supported})
-
-    # compile_generic_shard wipes out_dir at the start and computes the
-    # Merkle root internally, so pre-derived ext/ files cannot simply be
-    # placed in shard_dir beforehand. Inject them at the exact point the
-    # compiler seals the directory: wrap compute_merkle_root so the staged
-    # files are copied into ext/ immediately before the root is computed.
-    # They are therefore covered by the Merkle root, listed in the
-    # manifest's "extensions", and verified by the compiler's self-verify.
-    extra = [Path(p) for p in (extra_ext_files or []) if Path(p).exists()]
-    if not extra:
-        return compile_generic_shard(cfg)
-
-    orig_merkle = _compiler_mod.compute_merkle_root
-
-    def _merkle_with_staged_ext(shard_root, suite="ed25519"):
-        ext_dir = Path(shard_root) / "ext"
-        ext_dir.mkdir(parents=True, exist_ok=True)
-        for f in extra:
-            shutil.copy2(f, ext_dir / f.name)
-        return orig_merkle(shard_root, suite=suite)
-
-    _compiler_mod.compute_merkle_root = _merkle_with_staged_ext
-    try:
-        return compile_generic_shard(cfg)
-    finally:
-        _compiler_mod.compute_merkle_root = orig_merkle
+    cfg = CompilerConfig(
+        source_path=source_path,
+        candidates_path=candidates_path,
+        out_dir=shard_dir,
+        private_key=private_key,
+        publisher_id="@jonathan",
+        publisher_name="Jonathan",
+        namespace=namespace,
+        created_at=now,
+        title=title,
+        license_spdx=license_spdx,
+        supersedes=tuple(supersedes),
+    )
+    return compile_generic_shard(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -941,16 +908,18 @@ def run_pipeline(
     input_dir: Path,
     output_dir: Path,
     namespace: str = "law/ca-family",
-    title: str = "California Family Law Corpus",
-    suite: str = "axm-blake3-mldsa44",
+    title: str = "",  # empty -> derived from the input path stem
+    license_spdx: str = "UNLICENSED",
     llm_model: str = "llama3:8b",
     llm_host: str = "http://127.0.0.1:11434",
     skip_llm: bool = False,
     plan_only: bool = False,
-    domain_hints: str = "",
     supersedes: tuple = (),
 ) -> bool:
     """Full ingestion pipeline: documents → signed shard."""
+
+    if not title:
+        title = input_dir.stem.replace("_", " ").replace("-", " ").strip() or "Untitled Shard"
 
     # Plan
     plan = plan_job(input_dir, output_dir, llm_model)
@@ -1009,47 +978,40 @@ def run_pipeline(
     log(f"  {n_total} total candidates (deduplicated)", "ok")
 
     # ── Pre-compile derivation passes ─────────────────────────────────────
-    # Derivation MUST run before Genesis compilation: its parquet outputs are
-    # staged here and injected into the shard's ext/ directory at seal time,
-    # so they are covered by the Merkle root. Writing into the shard after
-    # compilation would break verification (false provenance). The passes
-    # recompute the exact Genesis entity/claim IDs (axm_verify.identity) the
-    # compiler will assign, so ext/ join keys match the sealed graph tables.
-    # Staged outputs are deterministic and cheap, so they are rebuilt on every
-    # run (including resumes) rather than checkpointed.
-    ext_stage = work_dir / "ext_stage"
-    if ext_stage.exists():
-        shutil.rmtree(ext_stage)
-    ext_stage.mkdir(parents=True, exist_ok=True)
-
+    # Temporal derivation annotates candidates in place (valid_from /
+    # valid_until / temporal_context keys); the v1 Genesis compiler turns
+    # those into a sealed ext/temporal@1.jsonl itself. Nothing is ever
+    # written into the shard directory from outside the compiler.
     try:
-        from axm_forge.derivation.coords import run_coords_pass
-        coords_result = run_coords_pass(
-            candidates_path, namespace=namespace, out_dir=ext_stage,
-        )
-        if coords_result.get("written"):
-            log(f"  coords@1: {coords_result['rows']} entities classified", "ok")
-        else:
-            log(f"  coords@1: skipped ({coords_result.get('reason', 'no entities')})", "dim")
-    except Exception as e:
-        log(f"  coords@1: failed ({e})", "warn")
-
-    try:
-        from axm_forge.derivation.temporal import run_temporal_pass
-        temporal_result = run_temporal_pass(
-            candidates_path, ext_stage,
-            namespace=namespace, source_path=source_path,
-        )
-        if temporal_result.get("written"):
-            log(f"  temporal@1: {temporal_result['temporal_rows']} temporal claims", "ok")
+        from axm_forge.derivation.temporal import annotate_temporal_candidates
+        n_temporal = annotate_temporal_candidates(candidates_path)
+        if n_temporal:
+            log(f"  temporal@1: {n_temporal} temporal claims annotated", "ok")
         else:
             log(f"  temporal@1: skipped (no temporal claims detected)", "dim")
     except Exception as e:
         log(f"  temporal@1: failed ({e})", "warn")
 
-    extra_ext_files = sorted(ext_stage.glob("*.parquet"))
+    # Coords are a runtime-derived cache, not a kernel-registry extension:
+    # v1 shards carry only compiler-emitted ext/ tables, so coords live
+    # OUTSIDE the shard, rebuildable from candidates at any time.
+    derived_dir = work_dir / "derived"
+    if derived_dir.exists():
+        shutil.rmtree(derived_dir)
+    derived_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        from axm_forge.derivation.coords import run_coords_pass
+        coords_result = run_coords_pass(
+            candidates_path, namespace=namespace, out_dir=derived_dir,
+        )
+        if coords_result.get("written"):
+            log(f"  coords (derived cache, outside shard): {coords_result['rows']} entities classified", "ok")
+        else:
+            log(f"  coords: skipped ({coords_result.get('reason', 'no entities')})", "dim")
+    except Exception as e:
+        log(f"  coords: failed ({e})", "warn")
 
-    # Compile (seals everything, including staged ext/ files)
+    # Compile (single Merkle pass seals everything, including ext/ tables)
     log("\n[5/5] Compiling shard...", "stage")
     shard_dir = output_dir / "shard"
     if shard_dir.exists():
@@ -1063,10 +1025,8 @@ def run_pipeline(
             shard_dir=shard_dir,
             namespace=namespace,
             title=title,
-            suite=suite,
+            license_spdx=license_spdx,
             supersedes=supersedes,
-            domain_hints=domain_hints,
-            extra_ext_files=extra_ext_files,
         )
         dt = time.time() - t0
         if ok:
@@ -1078,7 +1038,7 @@ def run_pipeline(
             stats = manifest.get("statistics", {})
             extensions = manifest.get("extensions", [])
             log(f"\n  Shard: {manifest.get('metadata', {}).get('title', 'unknown')}", "info")
-            log(f"  Suite: {manifest.get('suite', 'ed25519')}", "info")
+            log(f"  Suite: {manifest.get('suite', '?')}", "info")
             log(f"  Entities: {stats.get('entities', '?')}", "info")
             log(f"  Claims:   {stats.get('claims', '?')}", "info")
             if extensions:
@@ -1118,16 +1078,14 @@ Examples:
     p.add_argument("--input", required=True, help="Directory of .md/.txt source files")
     p.add_argument("--output", default="./out/forge_output", help="Output directory")
     p.add_argument("--namespace", default="law/ca-family", help="Shard namespace")
-    p.add_argument("--title", default="California Family Law Corpus", help="Shard title")
-    p.add_argument("--suite", default="axm-blake3-mldsa44",
-                    choices=["ed25519", "axm-blake3-mldsa44"], help="Crypto suite")
+    p.add_argument("--title", default="", help="Shard title (default: derived from the input name)")
+    p.add_argument("--license-spdx", default="UNLICENSED", help="SPDX license expression for the manifest")
     p.add_argument("--llm-model", default=None, help="Ollama model name")
     p.add_argument("--llm-host", default=None, help="Ollama host URL")
     p.add_argument("--skip-llm", action="store_true", help="Skip tier 3 LLM extraction")
     p.add_argument("--plan-only", action="store_true", help="Show plan without running")
-    p.add_argument("--domain-hints", default="", help="Domain context injected into tier 2/3 LLM prompt")
     p.add_argument("--supersedes", nargs="*", default=[], metavar="SHARD_ID",
-                   help="Shard IDs this build supersedes (emits ext/lineage@1.parquet)")
+                   help="Predecessor shard ids in sh1_ form (emits ext/lineage@1.jsonl)")
 
     args = p.parse_args()
 
@@ -1139,12 +1097,11 @@ Examples:
         output_dir=Path(args.output),
         namespace=args.namespace,
         title=args.title,
-        suite=args.suite,
+        license_spdx=args.license_spdx,
         llm_model=model,
         llm_host=host,
         skip_llm=args.skip_llm,
         plan_only=args.plan_only,
-        domain_hints=args.domain_hints,
         supersedes=tuple(args.supersedes),
     )
 

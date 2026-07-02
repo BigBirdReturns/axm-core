@@ -11,13 +11,10 @@ license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
   # ── Protocol kernel ────────────────────────────────────────────────────────
-  # Pinned to the manifest-schema fix commit on branch
-  # claude/durability-report-test-fixes-4hbf2v (post-v1.2.0). The v1.2.0 tag's
-  # compiler emits `created_at` at the manifest top level, which the strict
-  # verifier on this commit rejects (spec 5.2 requires metadata.created_at) —
-  # so shards built by the v1.2.0 snapshot fail verification under newer
-  # verifiers. Re-pin to the next tagged release once it is cut.
-  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@ed556f76dae599ded4228d5567b05c04aea5e007",
+  # Pinned to the v1 merge commit (RFC 0002 — the v1.0 reset: one axm-hybrid1
+  # suite, canonical JSONL core tables, derived shard identity).
+  # Re-pin to the PyPI release at v1.0.0.
+  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@808e7b7c60c35c3f84bf2ab2b51ca9e679f38824",
 
   # ── Core deps ─────────────────────────────────────────────────────────────
   "blake3>=0.4.0",
@@ -35,6 +32,15 @@ dependencies = [
 server = [
   "fastapi>=0.100",
   "pydantic>=2.0",
+]
+# ML-DSA-44 signing backends, mirroring the axm-genesis extras rename:
+# [mldsa] = liboqs (C bindings, preferred), [mldsa-compat] = dilithium-py
+# (pure Python). "pq" is the deprecated old name for [mldsa-compat].
+mldsa = [
+  "liboqs-python",
+]
+mldsa-compat = [
+  "dilithium-py>=0.5.0",
 ]
 pq = [
   "dilithium-py>=0.5.0",

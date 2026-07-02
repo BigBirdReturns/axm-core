@@ -11,7 +11,7 @@ Optional:
 Expected layout (sibling checkouts — axm-core does NOT vendor genesis):
   <stack-root>/
     axm-genesis/   git checkout of the kernel (src/axm_build, src/axm_verify,
-                   shards/gold/fm21-11-hemorrhage-v1)
+                   shards/gold/fm21-11-hemorrhage-v2)
     axm-core/      this repo (forge/, spectra/, clarion/)
 
 The stack root is auto-detected by walking up from the current directory
@@ -111,8 +111,8 @@ def import_checks() -> tuple[bool, list[str]]:
 def run_gold_verify(python_exe: str, env: dict[str, str], root: Path) -> tuple[int, str, str]:
     layout = _layout(root)
     genesis_dir = layout[0] if layout else root / "axm-genesis"
-    gold_shard = genesis_dir / "shards" / "gold" / "fm21-11-hemorrhage-v1"
-    trusted_key = genesis_dir / "keys" / "canonical_test_publisher.pub"
+    gold_shard = genesis_dir / "shards" / "gold" / "fm21-11-hemorrhage-v2"
+    trusted_key = genesis_dir / "keys" / "gold-v2-provisional.pub"
     if not trusted_key.exists():
         # Fall back to the key shipped inside the shard itself.
         trusted_key = gold_shard / "sig" / "publisher.pub"

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import blake3
 import duckdb
 
 # In-process Genesis verification (preferred over shelling out)
@@ -28,6 +29,68 @@ from .retrieval import Embedder, VectorIndex
 from .sqlgate import is_read_only_sql
 from .transport import TransportAdapter
 from .util import choose_temp_root, quote_ident, sanitize_identifier, sha256_hex
+
+
+# Genesis v1 core tables: canonical JSONL files with frozen, exact key sets
+# (spec/v1/SPECIFICATION.md section 11). byte_start/byte_end/tier are the only
+# integer columns; everything else is a string.
+_CORE_TABLES: Tuple[Tuple[str, str, Tuple[Tuple[str, str], ...]], ...] = (
+    (
+        "graph/claims.jsonl",
+        "claims",
+        (("claim_id", "VARCHAR"), ("subject", "VARCHAR"), ("predicate", "VARCHAR"),
+         ("object", "VARCHAR"), ("object_type", "VARCHAR"), ("tier", "BIGINT")),
+    ),
+    (
+        "graph/entities.jsonl",
+        "entities",
+        (("entity_id", "VARCHAR"), ("namespace", "VARCHAR"),
+         ("label", "VARCHAR"), ("entity_type", "VARCHAR")),
+    ),
+    (
+        "graph/provenance.jsonl",
+        "provenance",
+        (("provenance_id", "VARCHAR"), ("claim_id", "VARCHAR"), ("source_hash", "VARCHAR"),
+         ("byte_start", "BIGINT"), ("byte_end", "BIGINT")),
+    ),
+    (
+        "evidence/spans.jsonl",
+        "spans",
+        (("span_id", "VARCHAR"), ("source_hash", "VARCHAR"),
+         ("byte_start", "BIGINT"), ("byte_end", "BIGINT"), ("text", "VARCHAR")),
+    ),
+)
+
+
+def _read_jsonl_rows(path: Path) -> List[Dict[str, Any]]:
+    """Read one JSON object per line with the stdlib parser.
+
+    Shard tables are canonical JSONL (one canonical-JSON record per line);
+    mounting only needs plain parsing — canonical-form enforcement is the
+    verifier's job and has already run behind the mount gate.
+    """
+    rows: List[Dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"{path}:{lineno}: invalid JSON line: {e}") from e
+            if not isinstance(obj, dict):
+                raise ValueError(f"{path}:{lineno}: JSONL row is not an object")
+            rows.append(obj)
+    return rows
+
+
+def _duckdb_type_for(value: Any) -> str:
+    if isinstance(value, bool):
+        return "BOOLEAN"
+    if isinstance(value, int):
+        return "BIGINT"
+    return "VARCHAR"
 
 
 @dataclass(frozen=True)
@@ -182,7 +245,7 @@ class SpectraEngine:
         )
 
     def _verify_span_bounds(self, shard_dir: Path, manifest: Dict[str, Any]) -> None:
-        """Verify that spans.parquet byte ranges stay within their referenced content files.
+        """Verify that spans.jsonl byte ranges stay within their referenced content files.
 
         Reject with PROVENANCE_OUT_OF_BOUNDS if any span exceeds document bounds.
         """
@@ -196,9 +259,9 @@ class SpectraEngine:
             if isinstance(h, str) and isinstance(rel, str):
                 hash_to_path[h] = (shard_dir / rel)
 
-        spans_path = shard_dir / "evidence" / "spans.parquet"
+        spans_path = shard_dir / "evidence" / "spans.jsonl"
         if not spans_path.exists():
-            raise ValueError("PROVENANCE_OUT_OF_BOUNDS: missing evidence/spans.parquet")
+            raise ValueError("PROVENANCE_OUT_OF_BOUNDS: missing evidence/spans.jsonl")
 
         # Precompute file sizes.
         hash_to_size: Dict[str, int] = {}
@@ -207,19 +270,14 @@ class SpectraEngine:
                 raise ValueError(f"PROVENANCE_OUT_OF_BOUNDS: source file missing for hash {h}: {fp}")
             hash_to_size[h] = fp.stat().st_size
 
-        # Read spans using DuckDB (no pyarrow dependency).
-        con = duckdb.connect(":memory:")
-        try:
-            rows = con.execute(
-                "SELECT source_hash, byte_start, byte_end FROM read_parquet(?)",
-                [str(spans_path)],
-            ).fetchall()
-        finally:
-            con.close()
+        rows = [
+            (r.get("source_hash"), r.get("byte_start"), r.get("byte_end"))
+            for r in _read_jsonl_rows(spans_path)
+        ]
 
         for source_hash, byte_start, byte_end in rows:
             if not isinstance(source_hash, str) or source_hash not in hash_to_size:
-                raise ValueError(f"PROVENANCE_OUT_OF_BOUNDS: unknown source_hash in spans.parquet: {source_hash}")
+                raise ValueError(f"PROVENANCE_OUT_OF_BOUNDS: unknown source_hash in spans.jsonl: {source_hash}")
 
             try:
                 bs = int(byte_start)
@@ -241,6 +299,28 @@ class SpectraEngine:
                     f"PROVENANCE_OUT_OF_BOUNDS: span exceeds source bounds for source_hash {source_hash}: "
                     f"{bs}..{be} (size {size})"
                 )
+
+    def _load_table(
+        self,
+        name: str,
+        columns: List[Tuple[str, str]],
+        rows: List[Dict[str, Any]],
+    ) -> None:
+        """(Re)create a DuckDB table and bulk-insert JSONL rows.
+
+        The table is a derived, rebuildable cache held in the engine's DuckDB
+        connection — never written into the shard directory.
+        """
+        col_sql = ", ".join(f"{quote_ident(c)} {t}" for c, t in columns)
+        self.con.execute(f"DROP TABLE IF EXISTS {quote_ident(name)}")
+        self.con.execute(f"DROP VIEW IF EXISTS {quote_ident(name)}")
+        self.con.execute(f"CREATE TABLE {quote_ident(name)} ({col_sql})")
+        if rows:
+            placeholders = ", ".join("?" for _ in columns)
+            data = [[row.get(c) for c, _t in columns] for row in rows]
+            self.con.executemany(
+                f"INSERT INTO {quote_ident(name)} VALUES ({placeholders})", data
+            )
 
     def boot(self) -> Dict[str, Any]:
         """Rehydrate state from the System Catalog."""
@@ -343,15 +423,18 @@ class SpectraEngine:
             self._verify_constitution(target_dir)
 
             manifest_path = target_dir / "manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_bytes = manifest_path.read_bytes()
+            manifest = json.loads(manifest_bytes.decode("utf-8"))
 
             spec_version = manifest.get("spec_version")
             if spec_version != "1.0.0":
                 raise ValueError(f"Unsupported Genesis spec_version: {spec_version}")
 
-            shard_id = manifest.get("shard_id")
-            if not shard_id or not isinstance(shard_id, str):
-                raise ValueError("Genesis manifest missing required field: shard_id")
+            # Shard identity is DERIVED, never stored (spec section 9):
+            #   shard_id = "sh1_" + hex(BLAKE3(manifest_bytes))
+            # A manifest that carries a stored shard_id is a v0.x prototype
+            # and is rejected by the verify gate above (E_MANIFEST_SCHEMA).
+            shard_id = "sh1_" + blake3.blake3(manifest_bytes).hexdigest()
 
             merkle_root = (manifest.get("integrity") or {}).get("merkle_root")
             if not merkle_root or not isinstance(merkle_root, str):
@@ -371,50 +454,62 @@ class SpectraEngine:
                         shutil.rmtree(temp_dir)
                     return self._mount_specs[mount_id]
 
-                # Load Parquet tables into DuckDB views.
+                # Load the canonical JSONL tables into DuckDB tables. The
+                # loaded tables are a rebuildable query cache that lives in
+                # the engine's DuckDB — OUTSIDE the shard directory, which is
+                # sealed and never written to (RFC 0002 D2). Remounting
+                # rebuilds them from the shard's JSONL bytes.
                 tables: List[str] = []
                 claims_for_mount: List[Dict[str, Any]] = []
 
-                # Register views for all standard shard tables.
-                _SHARD_TABLES = [
-                    ("graph/claims.parquet", "claims", True),
-                    ("graph/entities.parquet", "entities", False),
-                    ("graph/provenance.parquet", "provenance", False),
-                    ("evidence/spans.parquet", "spans", False),
-                ]
-
-                for rel_path, table_name, required in _SHARD_TABLES:
-                    pq_path = target_dir / rel_path
-                    if not pq_path.exists():
-                        if required:
-                            raise ValueError(f"Genesis shard missing required file: {rel_path}")
-                        continue
-                    p = pq_path.as_posix().replace("'", "''")
+                for rel_path, table_name, columns in _CORE_TABLES:
+                    jsonl_path = target_dir / rel_path
+                    if not jsonl_path.exists():
+                        raise ValueError(f"Genesis shard missing required file: {rel_path}")
+                    rows = _read_jsonl_rows(jsonl_path)
                     view_name = f"{table_name}__{mount_prefix}__{sanitize_identifier(shard_id)}"
-                    self.con.execute(
-                        f"CREATE OR REPLACE VIEW {quote_ident(view_name)} AS SELECT * FROM read_parquet('{p}')"
-                    )
+                    self._load_table(view_name, list(columns), rows)
                     tables.append(view_name)
 
-                # Also register ext/ parquet files if present.
+                # Also mount ext/ tables. Kernel-registry extensions
+                # (lineage@1, references@1, temporal@1, locators@1) are
+                # canonical JSONL and mount like the core tables. ext/ is
+                # opaque to the kernel, so unknown or binary formats are
+                # tolerated: skipped with a log line, never a mount failure.
                 ext_dir = target_dir / "ext"
                 if ext_dir.is_dir():
                     for ext_file in sorted(ext_dir.iterdir()):
-                        if ext_file.suffix == ".parquet" and ext_file.is_file():
-                            p = ext_file.as_posix().replace("'", "''")
-                            # Extension files follow the `name@version` filename
-                            # convention (INV-29), e.g. temporal@1.parquet. The
-                            # DuckDB view name must be built from the BASE name
-                            # only: identifiers can't contain `@` unquoted, and
-                            # the union-view prefix match (ext_temporal__, etc.)
-                            # keys on the base name. Files without an @version
-                            # (legacy/forward-compat) keep their full stem.
-                            ext_base = ext_file.stem.split("@", 1)[0]
-                            view_name = f"ext_{ext_base}__{mount_prefix}__{sanitize_identifier(shard_id)}"
-                            self.con.execute(
-                                f"CREATE OR REPLACE VIEW {quote_ident(view_name)} AS SELECT * FROM read_parquet('{p}')"
+                        if not ext_file.is_file():
+                            continue
+                        if ext_file.suffix != ".jsonl":
+                            print(
+                                f"[Mount] Skipping opaque ext file (not JSONL): ext/{ext_file.name}",
+                                file=sys.stderr,
                             )
-                            tables.append(view_name)
+                            continue
+                        # Extension files follow the `name@version` filename
+                        # convention (ext/temporal@1.jsonl). The DuckDB table
+                        # name is built from the BASE name only: identifiers
+                        # can't contain `@` unquoted, and the union-view
+                        # prefix match (ext_temporal__, etc.) keys on the
+                        # base name.
+                        ext_base = ext_file.stem.split("@", 1)[0]
+                        try:
+                            ext_rows = _read_jsonl_rows(ext_file)
+                        except ValueError as e:
+                            print(
+                                f"[Mount] Skipping unreadable ext table ext/{ext_file.name}: {e}",
+                                file=sys.stderr,
+                            )
+                            continue
+                        if not ext_rows:
+                            continue
+                        ext_columns = [
+                            (k, _duckdb_type_for(ext_rows[0][k])) for k in ext_rows[0].keys()
+                        ]
+                        view_name = f"ext_{ext_base}__{mount_prefix}__{sanitize_identifier(shard_id)}"
+                        self._load_table(view_name, ext_columns, ext_rows)
+                        tables.append(view_name)
 
                 # For indexing, pull claim rows as dicts (bounded by shard size in practice).
                 claims_view = f"claims__{mount_prefix}__{sanitize_identifier(shard_id)}"
@@ -551,6 +646,7 @@ class SpectraEngine:
                 return
 
             for t in spec.tables:
+                self.con.execute(f"DROP TABLE IF EXISTS {quote_ident(t)}")
                 self.con.execute(f"DROP VIEW IF EXISTS {quote_ident(t)}")
 
             temp_dir = self._mount_dirs.pop(mount_id, None)

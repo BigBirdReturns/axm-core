@@ -5,10 +5,9 @@ _READONLY_RE = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 # Denylist of DuckDB functions / statements that can read external files or
 # mutate engine state. These must NEVER be reachable through the user-submitted
 # SQL entry point (engine.query_json), which is the ONLY caller of
-# is_read_only_sql(). The engine's internal mount SQL legitimately uses
-# read_parquet() but executes via self.con.execute(...) directly and never
-# passes through this gate, so scoping the denylist here applies it exclusively
-# to user queries.
+# is_read_only_sql(). The engine's internal mount SQL executes via
+# self.con.execute(...) directly and never passes through this gate, so
+# scoping the denylist here applies it exclusively to user queries.
 _DENYLIST = (
     "read_parquet",
     "read_csv",

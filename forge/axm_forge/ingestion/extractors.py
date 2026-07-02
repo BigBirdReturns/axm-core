@@ -34,7 +34,7 @@ class DocumentBlock:
         {"kind": "txt", "file_path": "/path/to/doc.txt"}
 
     The locator dict flows through the pipeline:
-        extractor -> segmenter -> binder -> candidates.jsonl -> compiler -> ext/locators.parquet
+        extractor -> segmenter -> binder -> candidates.jsonl -> compiler -> ext/locators@1.jsonl
     """
     text: str
     locator: Dict[str, Any]

@@ -4,7 +4,8 @@ Constraint Engine
 Evaluates ROE/FSCM/ACM/GUIDANCE constraints from mounted Genesis shards.
 
 Key difference from SOCOM original: data source is Spectra-mounted DuckDB
-views (claims.parquet, entities.parquet) instead of compiled JSONL packs.
+tables (loaded from the shard's canonical graph/claims.jsonl and
+graph/entities.jsonl at mount time) instead of compiled JSONL packs.
 The logic (precedence, authority chain, revocation) is ported unchanged.
 
 Constraint shards are regular Genesis shards where:

@@ -40,9 +40,9 @@ These are the stable surfaces.  Anything not listed here is internal to Core and
 |---|---|---|
 | Shard compilation | `axm-genesis` — `axm_build.compiler_generic` (`CompilerConfig`, `compile_generic_shard`) | The protocol guarantee is that every shard was compiled by the same kernel.  Spoke-level compilation bypasses the signature contract. |
 | Shard verification | `axm-genesis` — `axm_verify.logic.verify_shard` / CLI `axm-verify shard PATH --trusted-key KEY` | Same reason.  Verification must be kernel-level. |
-| Merkle tree construction | `axm-genesis` — `axm_build.merkle.compute_merkle_root` | The root hash is the shard's identity.  Spoke-level Merkle breaks cross-shard reference integrity. |
+| Merkle tree construction | `axm-genesis` — `axm_build.merkle.compute_merkle_root` | The root commits to every sealed byte.  Spoke-level Merkle breaks cross-shard reference integrity. |
 | DuckDB schema for shard tables | `axiom_runtime.engine` | Spoke-level schema changes break union views across spokes. |
-| Signing keys and crypto suite selection | `axm-genesis` — `axm_build.sign` (`mldsa44_keygen`, `mldsa44_sign`, `SUITE_ED25519`, `SUITE_MLDSA44`) | One key per publisher, one suite per ecosystem version. |
+| Signing keys and crypto suite | `axm-genesis` — `axm_build.sign` (`hybrid1_keygen`, `hybrid1_sign`, `hybrid1_verify`, `hybrid1_public_key`, `SUITE_HYBRID1`, `HYBRID1_SK_LEN`) | One suite (`axm-hybrid1`: Ed25519 ‖ ML-DSA-44, both must verify); one publisher identity per key pool.  Keys via `axm-build keygen` (3904-byte secret blob, 1344-byte public key). |
 | Entity/claim identity | `axm-genesis` — `axm_verify.identity` (`recompute_entity_id`, `recompute_claim_id`) | Sealed IDs must match what the compiler recomputes. |
 
 ---
@@ -104,13 +104,11 @@ After `pip install -e .`, running `axm spokes` lists it and `axm myspoke hello` 
 
 Spokes declare a minimum `axm-genesis` version.  They declare `axm-core` if they use Spectra or Forge.  They do not pin exact versions of either — that is the user's environment's job.
 
-The Genesis protocol version is the long-term stability guarantee: shards whose
-manifests conform to the frozen spec (v1.0/v1.1 layout with
-`metadata.created_at`) verify under current and future verifiers.
+The Genesis protocol version is the long-term stability guarantee: the v1
+kernel (RFC 0002) is frozen, so a shard compiled under any 1.x verifies
+under every other 1.x. Everything shipped before v1 is the v0.x prototype
+lineage — archived in git history and **not** accepted by v1 verifiers.
 
-**Known exception:** the `v1.2.0` git tag's compiler emitted `created_at` at
-the manifest **top level**; verifiers newer than that tag enforce the spec's
-`metadata.created_at` and reject those shards with `E_MANIFEST_SCHEMA`. Shards
-built with the v1.2.0 snapshot must be rebuilt with the fixed kernel (the
-commit pinned in this repo's `pyproject.toml`, or any later release) to regain
-forward verifiability.
+Every genesis-facing name in this document is re-proven importable against
+the pinned kernel by
+`tests/test_v1_mount.py::test_spoke_api_import_surface`.
