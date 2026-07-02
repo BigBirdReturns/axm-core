@@ -388,13 +388,23 @@ def _handle_show_find(q: str, limit: int) -> Optional[Query]:
         return None
 
     like = _like(topic)
+    # v1 claims hold entity ids in subject (and in object when
+    # object_type == 'entity'); labels live in the entities table. Match
+    # and display through the label, falling back to the raw value for
+    # literal objects.
     return (
         """
-        SELECT DISTINCT subject, predicate, object
-        FROM claims
-        WHERE lower(object) LIKE ?
-           OR lower(subject) LIKE ?
-        ORDER BY subject
+        SELECT DISTINCT
+            COALESCE(se.label, c.subject) AS subject,
+            c.predicate,
+            COALESCE(oe.label, c.object)  AS object,
+            c.tier
+        FROM claims c
+        LEFT JOIN entities se ON c.subject = se.entity_id
+        LEFT JOIN entities oe ON c.object  = oe.entity_id
+        WHERE lower(COALESCE(se.label, c.subject)) LIKE ?
+           OR lower(COALESCE(oe.label, c.object))  LIKE ?
+        ORDER BY 1
         LIMIT ?
         """,
         [like, like, limit],
@@ -420,7 +430,8 @@ def _handle_keyword_fallback(q: str, limit: int) -> Optional[Query]:
     # One ``(lower(object) LIKE ? OR lower(subject) LIKE ?)`` group per word;
     # every value is bound, none interpolated.
     conditions = " OR ".join(
-        "lower(object) LIKE ? OR lower(subject) LIKE ?" for _ in selected
+        "lower(COALESCE(oe.label, c.object)) LIKE ? OR lower(COALESCE(se.label, c.subject)) LIKE ?"
+        for _ in selected
     )
     params: List[object] = []
     for w in selected:
@@ -428,12 +439,19 @@ def _handle_keyword_fallback(q: str, limit: int) -> Optional[Query]:
         params.extend([like, like])
     params.append(limit)
 
+    # Label-aware for v1 shards: see _handle_show_find.
     return (
         f"""
-        SELECT DISTINCT subject, predicate, object
-        FROM claims
+        SELECT DISTINCT
+            COALESCE(se.label, c.subject) AS subject,
+            c.predicate,
+            COALESCE(oe.label, c.object)  AS object,
+            c.tier
+        FROM claims c
+        LEFT JOIN entities se ON c.subject = se.entity_id
+        LEFT JOIN entities oe ON c.object  = oe.entity_id
         WHERE {conditions}
-        ORDER BY subject
+        ORDER BY 1
         LIMIT ?
         """,
         params,
