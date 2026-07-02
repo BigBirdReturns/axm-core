@@ -65,6 +65,11 @@ source .venv/bin/activate
 # Install axm-core root (pulls the pinned axm-genesis automatically)
 pip install -e .
 
+# Developing against a local genesis checkout? The pin above fetches the
+# pinned commit from GitHub and will replace an editable install — put
+# your sibling checkout back afterwards:
+#   pip install --no-deps -e ../axm-genesis
+
 # Install forge separately
 pip install -e ./forge
 

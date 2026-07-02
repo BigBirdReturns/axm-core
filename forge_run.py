@@ -908,7 +908,7 @@ def run_pipeline(
     input_dir: Path,
     output_dir: Path,
     namespace: str = "law/ca-family",
-    title: str = "California Family Law Corpus",
+    title: str = "",  # empty -> derived from the input path stem
     license_spdx: str = "UNLICENSED",
     llm_model: str = "llama3:8b",
     llm_host: str = "http://127.0.0.1:11434",
@@ -917,6 +917,9 @@ def run_pipeline(
     supersedes: tuple = (),
 ) -> bool:
     """Full ingestion pipeline: documents → signed shard."""
+
+    if not title:
+        title = input_dir.stem.replace("_", " ").replace("-", " ").strip() or "Untitled Shard"
 
     # Plan
     plan = plan_job(input_dir, output_dir, llm_model)
@@ -1075,7 +1078,7 @@ Examples:
     p.add_argument("--input", required=True, help="Directory of .md/.txt source files")
     p.add_argument("--output", default="./out/forge_output", help="Output directory")
     p.add_argument("--namespace", default="law/ca-family", help="Shard namespace")
-    p.add_argument("--title", default="California Family Law Corpus", help="Shard title")
+    p.add_argument("--title", default="", help="Shard title (default: derived from the input name)")
     p.add_argument("--license-spdx", default="UNLICENSED", help="SPDX license expression for the manifest")
     p.add_argument("--llm-model", default=None, help="Ollama model name")
     p.add_argument("--llm-host", default=None, help="Ollama host URL")
