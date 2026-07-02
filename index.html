@@ -846,29 +846,29 @@ footer {
 
 <!-- HERO -->
 <header class="hero">
-  <div class="hero-label">AXM · Query Runtime · v0.1</div>
+  <div class="hero-label">AXM · Orchestration Hub · Genesis v1 (RFC 0002)</div>
   <h1>The Hub.<em>Not Storage.<br>Not Search.<br>Structured Memory.</em></h1>
-  <p class="hero-sub">axm-core is the runtime between sealed shards and spoken questions. Spectra translates natural language to SQL. Forge compiles raw documents into shards. DuckDB executes cross-shard joins in memory. No inference at query time.</p>
+  <p class="hero-sub">axm-core is the runtime between sealed shards and spoken questions. Spectra verifies Genesis v1 shards, mounts their canonical JSONL tables into DuckDB, and translates natural language to parameterized SQL. Forge compiles raw documents into shards through the Genesis kernel. No LLM at query time.</p>
   <div class="hero-stats">
     <div class="stat">
       <span class="stat-val">0<span>ms</span></span>
       <span class="stat-label">LLM latency at query</span>
     </div>
     <div class="stat">
-      <span class="stat-val">∞<span>+</span></span>
-      <span class="stat-label">Shards in one query</span>
+      <span class="stat-val">37<span>/37</span></span>
+      <span class="stat-label">Tests passing (pytest)</span>
     </div>
     <div class="stat">
-      <span class="stat-val">3</span>
-      <span class="stat-label">Core subsystems</span>
+      <span class="stat-val">1</span>
+      <span class="stat-label">Signature suite — axm-hybrid1</span>
     </div>
   </div>
   <div class="hero-corner" aria-hidden="true">
-    pip install -e ./axm-core<br>
-    axm-core spectra "what failed last week"<br>
-    axm-forge compile ./fm21-11.pdf<br>
-    axm-core query --all-shards<br>
-    → DuckDB · Parquet · BLAKE3
+    python scripts/doctor.py<br>
+    python -m pytest tests/ -q<br>
+    python forge_run.py --input ./docs_dir/ --output ./out/shard/ --skip-llm<br>
+    axm-verify shard &lt;dir&gt; --trusted-key &lt;key&gt;<br>
+    → DuckDB · Canonical JSONL · BLAKE3
   </div>
 </header>
 
@@ -879,23 +879,23 @@ footer {
     <span class="sec-title">What Core Does</span>
   </div>
   <h2>Three subsystems.<br>One runtime.</h2>
-  <p>axm-core is the hub package. It neither signs shards (that's axm-genesis) nor produces them from conversations (that's a spoke). It does one thing: turns a pile of sealed Parquet shard directories into a queryable relational database, and lets you ask it questions in English.</p>
+  <p>axm-core is the hub package. It neither signs shards (that's axm-genesis) nor produces them from conversations (that's a spoke). It does one thing: verifies sealed Genesis v1 shard directories — canonical JSONL tables under a signed manifest — loads them into a queryable relational database, and lets you ask it questions in English.</p>
 
   <div class="role-grid">
     <div class="role-card">
       <span class="role-icon">⚡</span>
       <div class="role-name">Spectra</div>
-      <p class="role-desc">Natural language query engine. Parses intent, routes to a named query in the INTENT_ROUTES table, executes parameterized SQL against DuckDB. No LLM call at query time — the LLM runs once at distill time to build the index.</p>
+      <p class="role-desc">Query engine. Every mount is gated by <code>axm-verify</code> — no exceptions in production. Natural language becomes parameterized SQL through deterministic keyword/regex rules (<code>axiom_runtime.nlquery</code>), executed against DuckDB behind a read-only SQL gate. No LLM anywhere in the query path.</p>
     </div>
     <div class="role-card">
       <span class="role-icon">⚒</span>
       <div class="role-name">Forge</div>
-      <p class="role-desc">Document compiler. Takes PDFs, markdown, plain text, CSV, XLSX. Extracts structured claims at four tiers. Delegates signing and Merkle construction to axm-genesis via <code>compile_generic_shard</code>. Never reimplements the kernel.</p>
+      <p class="role-desc">Document compiler. Takes markdown, plain text, and chat exports. Deterministic tier 0/1 extractors (tables, statutory numbering, cross-references) plus optional tier 3 LLM extraction via Ollama. Delegates signing and Merkle construction to axm-genesis via <code>compile_generic_shard</code>. Never reimplements the kernel.</p>
     </div>
     <div class="role-card">
       <span class="role-icon">⬡</span>
       <div class="role-name">DuckDB Runtime</div>
-      <p class="role-desc">The query substrate. Mounts every shard as a glob-scanned Parquet view. Union by name. Cross-shard JOINs on episode_id and claim_id. All in memory. No separate database server. No schema migrations.</p>
+      <p class="role-desc">The query substrate. At mount time the shard's JSONL tables are parsed and loaded into DuckDB: per-shard tables plus cross-shard UNION ALL views (<code>claims</code>, <code>entities</code>, <code>provenance</code>, <code>spans</code>). A rebuildable cache outside the sealed shard, which is never written to. In memory. No server.</p>
     </div>
   </div>
 </section>
@@ -911,8 +911,8 @@ footer {
     <div>
       <h2>Language in.<br>SQL out.<br>No LLM.</h2>
       <p>Spectra is deliberately not a RAG system. It doesn't embed your query, search for similar chunks, and ask an LLM to synthesize them. That path is expensive and non-deterministic.</p>
-      <p>Instead: your natural language query is classified into a named intent. The intent maps to a parameterized SQL template. DuckDB executes it. The output is a result set — structured, reproducible, auditable.</p>
-      <p>The intent classifier runs locally via Ollama at distill time. At query time the only thing that runs is SQL.</p>
+      <p>Instead: your natural language query is matched by deterministic keyword and regex rules into a query shape. The rules emit parameterized SQL — user-derived values are bound as <code>?</code> parameters, never interpolated. DuckDB executes it. The output is a result set — structured, reproducible, auditable.</p>
+      <p>There is no LLM in this path at all — not at query time, not at index time. The only thing that runs is SQL, behind a read-only gate.</p>
     </div>
 
     <div class="spectra-flow">
@@ -924,7 +924,7 @@ footer {
         <div class="flow-body">
           <div class="flow-tag">Input</div>
           <div class="flow-name">Natural Language Query</div>
-          <p class="flow-desc">"What decisions have we made about the Merkle format?"</p>
+          <p class="flow-desc">"What treats severe bleeding?"</p>
         </div>
       </div>
       <div class="flow-step">
@@ -933,9 +933,9 @@ footer {
           <div class="flow-line"></div>
         </div>
         <div class="flow-body">
-          <div class="flow-tag">Intent Router</div>
+          <div class="flow-tag">Rule Router</div>
           <div class="flow-name">Keyword Classification</div>
-          <p class="flow-desc">Regex + keyword rules classify into a named intent. INTENT_ROUTES maps each intent to a SQL template. No LLM call.</p>
+          <p class="flow-desc">Regex + keyword rules in <code>axiom_runtime.nlquery</code> pick a query shape — search, decision lifecycle, temporal, lineage. No LLM call.</p>
         </div>
       </div>
       <div class="flow-step">
@@ -946,7 +946,7 @@ footer {
         <div class="flow-body">
           <div class="flow-tag">Parameterized SQL</div>
           <div class="flow-name">DuckDB Execution</div>
-          <p class="flow-desc">Named parameters substituted safely. Query executes against glob-mounted Parquet views. Zero injection surface.</p>
+          <p class="flow-desc">Values bound as <code>?</code> parameters. The read-only SQL gate rejects anything but reads. Query executes against the mounted JSONL-backed tables. Zero injection surface.</p>
         </div>
       </div>
       <div class="flow-step">
@@ -968,40 +968,27 @@ footer {
         <div class="code-block-dot" style="background:#f85149"></div>
         <div class="code-block-dot" style="background:#d29922"></div>
         <div class="code-block-dot" style="background:#3fb950"></div>
-        <span class="code-block-title">spectra/query.py — intent router (v2 parameterized)</span>
+        <span class="code-block-title">axiom_runtime/nlquery.py — run against the gold shard</span>
       </div>
       <pre>
-<span class="c"># Intent routes — no raw string interpolation</span>
-<span class="kw">INTENT_ROUTES</span> = {
-  <span class="st">"decisions"</span>: {
-    <span class="st">"match"</span>: <span class="kw">lambda</span> q: <span class="st">"decision"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"decided"</span> <span class="kw">in</span> q,
-    <span class="st">"sql"</span>: <span class="st">"""
-      SELECT episode_id, decision_text, rationale, shard_id
-      FROM decisions
-      WHERE lower(decision_text) LIKE lower(:term)
-      ORDER BY created_at DESC
-    """</span>,
-    <span class="st">"params"</span>: <span class="kw">lambda</span> q: {<span class="st">"term"</span>: <span class="fn">extract_term</span>(q)},
-  },
-  <span class="st">"failures"</span>: {
-    <span class="st">"match"</span>: <span class="kw">lambda</span> q: <span class="st">"fail"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"graveyard"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"tried"</span> <span class="kw">in</span> q,
-    <span class="st">"sql"</span>: <span class="st">"""
-      SELECT episode_id, problem, graveyard, solution
-      FROM read_parquet(:glob)
-      WHERE graveyard IS NOT NULL
-      ORDER BY created_at DESC
-    """</span>,
-    <span class="st">"params"</span>: <span class="kw">lambda</span> q: {<span class="st">"glob"</span>: <span class="st">"~/.axm/shards/*/ext/engineering&#64;1.parquet"</span>},
-  },
-  <span class="c"># ... additional routes</span>
-}
+<span class="c"># Real session — executed against the gold shard fm21-11-hemorrhage-v2</span>
+<span class="kw">from</span> axiom_runtime.engine <span class="kw">import</span> SpectraEngine
+<span class="kw">from</span> axiom_runtime.nlquery <span class="kw">import</span> natural_language_to_query
 
-<span class="kw">def</span> <span class="fn">route</span>(query: <span class="kw">str</span>) -> <span class="kw">tuple</span>[<span class="kw">str</span>, <span class="kw">dict</span>]:
-    q = query.<span class="fn">lower</span>()
-    <span class="kw">for</span> name, route <span class="kw">in</span> INTENT_ROUTES.<span class="fn">items</span>():
-        <span class="kw">if</span> route[<span class="st">"match"</span>](q):
-            <span class="kw">return</span> route[<span class="st">"sql"</span>], route[<span class="st">"params"</span>](q)
-    <span class="kw">raise</span> <span class="fn">ValueError</span>(<span class="st">f"No route for: {query}"</span>)
+engine = <span class="fn">SpectraEngine</span>()  <span class="c"># hard gate: axm-verify must pass before mount</span>
+engine.<span class="fn">mount</span>(<span class="st">"../axm-genesis/shards/gold/fm21-11-hemorrhage-v2"</span>, <span class="kw">None</span>)
+
+sql, params = <span class="fn">natural_language_to_query</span>(<span class="st">"what treats severe bleeding"</span>)
+<span class="c"># sql    → SELECT DISTINCT COALESCE(se.label, c.subject) AS subject,</span>
+<span class="c">#            c.predicate, COALESCE(oe.label, c.object) AS object, c.tier</span>
+<span class="c">#          FROM claims c LEFT JOIN entities se ... WHERE ... LIKE ?</span>
+<span class="c"># params → ['%treats%', '%treats%', '%severe%', ..., 50]  — bound, never inlined</span>
+
+rows = engine.con.<span class="fn">execute</span>(sql, params).<span class="fn">fetchall</span>()
+<span class="c"># → 3 rows in 3.8 ms:</span>
+<span class="c">#   ('direct pressure',  'treats', 'severe bleeding', 3)</span>
+<span class="c">#   ('pressure dressing','treats', 'severe bleeding', 3)</span>
+<span class="c">#   ('tourniquet',       'treats', 'severe bleeding', 3)</span>
 </pre>
     </div>
   </div>
@@ -1017,8 +1004,8 @@ footer {
   <div class="forge-layout">
     <div>
       <h2>Documents<br>become shards.</h2>
-      <p>Forge is the document ingestion pipeline. You point it at a document. It extracts structured claim candidates at four tiers — from lossless schema lift to LLM-assisted extraction — then delegates all signing and Merkle construction to <code>compile_generic_shard</code>. Forge never reimplements the kernel.</p>
-      <p>The output is structurally identical to a chat shard. Same manifest.json. Same Parquet schema. Same verification path. Forge doesn't know it's compiling a field manual versus a legal statute versus a design document. It applies the same protocol to all of them.</p>
+      <p>Forge is the document ingestion pipeline. You point it at a document. Deterministic tier 0/1 extractors lift structure (tables, headings, statutory numbering, cross-references); tier 3 optionally adds LLM extraction via Ollama. Then it delegates all signing and Merkle construction to <code>compile_generic_shard</code>. Forge never reimplements the kernel.</p>
+      <p>The output is structurally identical to a chat shard. Same manifest.json — with no <code>shard_id</code> field: identity is derived as <code>sh1_ + BLAKE3(canonical manifest bytes)</code>. Same canonical JSONL tables. Same verification path. Forge doesn't know it's compiling a field manual versus a legal statute versus a design document. It applies the same protocol to all of them.</p>
     </div>
 
     <div>
@@ -1026,33 +1013,33 @@ footer {
         <div class="pipeline-step">
           <div class="pipeline-num">01</div>
           <div class="pipeline-content">
-            <div class="pipeline-name">Parse</div>
-            <p class="pipeline-desc">Extract text blocks from PDF, markdown, or plain text. Segment into claim-sized units.</p>
-            <div class="pipeline-output">→ []str claims</div>
+            <div class="pipeline-name">Extract</div>
+            <p class="pipeline-desc">Tier 0/1 extractors lift markdown tables, headings, statutory numbering, and cross-references into claim candidates. Tier 3 (optional) adds LLM extraction.</p>
+            <div class="pipeline-output">→ .forge_work/candidates.jsonl</div>
           </div>
         </div>
         <div class="pipeline-step">
           <div class="pipeline-num">02</div>
           <div class="pipeline-content">
             <div class="pipeline-name">Hash</div>
-            <p class="pipeline-desc">BLAKE3 each claim. Build Merkle tree from leaf hashes. Compute root hash.</p>
-            <div class="pipeline-output">→ merkle_root: bytes32</div>
+            <p class="pipeline-desc">BLAKE3 over every sealed file. Merkle tree with RFC 6962 odd-leaf promotion and domain separation. Root committed in the manifest.</p>
+            <div class="pipeline-output">→ integrity.merkle_root</div>
           </div>
         </div>
         <div class="pipeline-step">
           <div class="pipeline-num">03</div>
           <div class="pipeline-content">
             <div class="pipeline-name">Sign</div>
-            <p class="pipeline-desc">axm-genesis signs the manifest via <code>compile_generic_shard</code>. Forge delegates — it never calls the signing primitives directly.</p>
-            <div class="pipeline-output">→ sig/manifest.sig</div>
+            <p class="pipeline-desc">axm-genesis signs the canonical manifest bytes via <code>compile_generic_shard</code> with <code>axm-hybrid1</code> (Ed25519 ‖ ML-DSA-44 — both must verify). 1344-byte public key, 2484-byte signature; keys from <code>axm-build keygen</code>.</p>
+            <div class="pipeline-output">→ sig/manifest.sig · sig/publisher.pub</div>
           </div>
         </div>
         <div class="pipeline-step">
           <div class="pipeline-num">04</div>
           <div class="pipeline-content">
             <div class="pipeline-name">Write</div>
-            <p class="pipeline-desc">Claims written to graph/claims.parquet. Manifest written. Shard directory sealed.</p>
-            <div class="pipeline-output">→ ~/.axm/shards/&lt;shard_id&gt;/</div>
+            <p class="pipeline-desc">Canonical JSONL tables written: graph/entities.jsonl, graph/claims.jsonl, graph/provenance.jsonl, evidence/spans.jsonl — plus content/ source bytes. Shard directory sealed; no Parquet inside.</p>
+            <div class="pipeline-output">→ &lt;output&gt;/shard/ · id = sh1_ + BLAKE3(manifest)</div>
           </div>
         </div>
       </div>
@@ -1065,25 +1052,24 @@ footer {
         <div class="code-block-dot" style="background:#f85149"></div>
         <div class="code-block-dot" style="background:#d29922"></div>
         <div class="code-block-dot" style="background:#3fb950"></div>
-        <span class="code-block-title">Forge — compile a document</span>
+        <span class="code-block-title">Forge — real run (structured markdown, no LLM)</span>
       </div>
       <pre>
-<span class="c"># Compile a PDF into a sealed Knowledge Shard</span>
-<span class="kw">axm-forge compile</span> <span class="pa">./fm21-11-first-aid.pdf</span> \
-  <span class="op">--signing-key</span> <span class="pa">keys/publisher.pem</span> \
-  <span class="op">--shard-id</span>    <span class="st">fm21-11-hemorrhage-v1</span>
+<span class="c"># Compile structured documents into a sealed Knowledge Shard</span>
+<span class="kw">python forge_run.py</span> <span class="op">--input</span> <span class="pa">./docs_dir/</span> <span class="op">--output</span> <span class="pa">./out/shard/</span> <span class="op">--skip-llm</span>
 
-<span class="c"># Output</span>
-<span class="ok">✓</span> Parsed    312 claim blocks
-<span class="ok">✓</span> Merkle    root: a3f9c2...d4e1
-<span class="ok">✓</span> Signed    ML-DSA-44 · FIPS 204
-<span class="ok">✓</span> Written   ~/.axm/shards/fm21-11-hemorrhage-v1/
+<span class="c"># Output (abridged — from an actual run)</span>
+<span class="ok">  tier0_markdown: 6 candidates (0.00s)</span>
+<span class="ok">  Generated new axm-hybrid1 keypair in ./out/shard/keys</span>
+<span class="ok">  ✓ Shard compiled and verified (0.1s)</span>
+<span class="hl">  Suite: axm-hybrid1 · Entities: 3 · Claims: 3</span>
+<span class="hl">  Merkle: 36817d4c104d95345b1090daefa13a16...</span>
 
-<span class="c"># Verify immediately</span>
-<span class="kw">axm-verify shard</span> <span class="pa">~/.axm/shards/fm21-11-hemorrhage-v1/</span> \
-  <span class="op">--trusted-key</span> <span class="pa">keys/publisher.pub</span>
+<span class="c"># Verify with the frozen kernel CLI (exit 0 = PASS, 1 = FAIL, 2 = usage)</span>
+<span class="kw">axm-verify shard</span> <span class="pa">./out/shard/shard</span> \
+  <span class="op">--trusted-key</span> <span class="pa">./out/shard/keys/publisher.pub</span>
 
-<span class="c"># → {"status":"PASS","error_count":0,"errors":[]}</span>
+<span class="c"># → {"status": "PASS", "error_count": 0, "errors": [], ...}   exit 0</span>
 </pre>
     </div>
   </div>
@@ -1099,8 +1085,8 @@ footer {
   <div class="duck-layout">
     <div>
       <h2>Every shard.<br>One database.<br>No server.</h2>
-      <p>DuckDB runs in-process. There is no separate database server to start, configure, or migrate. When a query runs, axm-core mounts every shard directory as a glob-scanned Parquet view using <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">read_parquet(glob, union_by_name=True)</code>.</p>
-      <p>New shards become queryable the moment they're written to disk. No ingestion step. No index rebuild. The glob just picks them up.</p>
+      <p>DuckDB runs in-process. There is no separate database server to start, configure, or migrate. When a shard is mounted, Spectra parses its canonical JSONL tables with the stdlib JSON reader and loads them into DuckDB: per-shard tables keyed by the derived shard identity, plus cross-shard <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">UNION ALL</code> views.</p>
+      <p>The loaded tables are a rebuildable cache that lives outside the shard — the sealed directory is never written to. And the mount is gated: <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">axm-verify</code> must pass first. A shard that doesn't verify doesn't mount.</p>
     </div>
 
     <div class="code-block">
@@ -1108,47 +1094,28 @@ footer {
         <div class="code-block-dot" style="background:#f85149"></div>
         <div class="code-block-dot" style="background:#d29922"></div>
         <div class="code-block-dot" style="background:#3fb950"></div>
-        <span class="code-block-title">DuckDB mount pattern</span>
+        <span class="code-block-title">Spectra mount pattern — real session, two shards</span>
       </div>
       <pre>
-<span class="kw">import</span> duckdb
+<span class="kw">from</span> axiom_runtime.engine <span class="kw">import</span> SpectraEngine
 
-conn = duckdb.<span class="fn">connect</span>()
+engine = <span class="fn">SpectraEngine</span>()
 
-<span class="c"># Mount all episodes across all shards</span>
-conn.<span class="fn">execute</span>(<span class="st">"""
-  CREATE VIEW episodes AS
-    SELECT * FROM read_parquet(
-      '~/.axm/shards/*/ext/episodes&#64;1.parquet',
-      union_by_name = true
-    )
-"""</span>)
+<span class="c"># Hard gate: Shard → (Clarion decrypt) → axm-verify → Mount → Query</span>
+engine.<span class="fn">mount</span>(<span class="st">"../axm-genesis/shards/gold/fm21-11-hemorrhage-v2"</span>, <span class="kw">None</span>)
+engine.<span class="fn">mount</span>(<span class="st">"./out/shard/shard"</span>, <span class="kw">None</span>)  <span class="c"># the shard Forge just built</span>
 
-<span class="c"># Mount all engineering lenses</span>
-conn.<span class="fn">execute</span>(<span class="st">"""
-  CREATE VIEW engineering AS
-    SELECT * FROM read_parquet(
-      '~/.axm/shards/*/ext/engineering&#64;1.parquet',
-      union_by_name = true
-    )
-"""</span>)
+<span class="c"># Each mount creates per-shard tables keyed by the derived identity:</span>
+<span class="c">#   claims__1b98b02bdb0b__sh1_ec77b88475889e48a7cd...</span>
+<span class="c"># and rebuilds the cross-shard union views:</span>
+<span class="c">#   claims · entities · provenance · spans</span>
+<span class="c">#   (+ temporal · lineage · refs when shards ship those ext/ tables)</span>
 
-<span class="c"># Cross-shard join: decisions + their lineage</span>
-conn.<span class="fn">execute</span>(<span class="st">"""
-  CREATE VIEW decisions AS
-    SELECT d.*, l.superseded_by, l.reason
-    FROM read_parquet(
-      '~/.axm/shards/*/ext/decisions&#64;1.parquet',
-      union_by_name = true
-    ) d
-    LEFT JOIN read_parquet(
-      '~/.axm/shards/*/ext/lineage&#64;1.parquet',
-      union_by_name = true
-    ) l USING (episode_id)
-"""</span>)
+engine.con.<span class="fn">execute</span>(<span class="st">"SELECT count(*) FROM claims"</span>).<span class="fn">fetchone</span>()
+<span class="c"># → (9,)  — 6 gold claims + 3 forged claims, one view, 1.6 ms</span>
 
-<span class="c"># New shards are picked up automatically on next query.</span>
-<span class="c"># No re-ingestion required.</span>
+<span class="c"># Unknown or binary ext/ formats are skipped with a log line —</span>
+<span class="c"># ext/ is opaque to the kernel. Unmount rebuilds the views without the shard.</span>
 </pre>
     </div>
   </div>
@@ -1163,7 +1130,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
 
   <div class="xshard-intro">
     <h2>Every shard can<br>reference every other.</h2>
-    <p>The <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">references&#64;1.parquet</code> table in each decision shard carries pointers into other shards by shard_id and episode_id. DuckDB can resolve these at query time without a central registry.</p>
+    <p>The <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">ext/references&#64;1.jsonl</code> table carries pointers into other shards by derived shard identity (<code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">sh1_&lt;64 hex&gt;</code>) and target claim/entity id. DuckDB resolves these at query time without a central registry — see <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">examples/query_cross_shard.py</code> for the full two-shard composition.</p>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;flex-wrap:wrap;">
@@ -1172,16 +1139,18 @@ conn.<span class="fn">execute</span>(<span class="st">"""
         <div class="code-block-dot" style="background:#f85149"></div>
         <div class="code-block-dot" style="background:#d29922"></div>
         <div class="code-block-dot" style="background:#3fb950"></div>
-        <span class="code-block-title">references&#64;1.parquet — schema</span>
+        <span class="code-block-title">ext/references&#64;1.jsonl — registry schema</span>
       </div>
       <pre>
-<span class="c">-- One row per cross-shard link</span>
-<span class="kw">episode_id</span>        <span class="op">VARCHAR</span>   <span class="c">-- local episode</span>
-<span class="kw">target_shard_id</span>   <span class="op">VARCHAR</span>   <span class="c">-- foreign shard</span>
-<span class="kw">target_episode_id</span> <span class="op">VARCHAR</span>   <span class="c">-- foreign episode</span>
-<span class="kw">claim_text</span>        <span class="op">VARCHAR</span>   <span class="c">-- the linked claim</span>
-<span class="kw">reference_type</span>    <span class="op">VARCHAR</span>   <span class="c">-- supports | supersedes
-                            -- contradicts | cites</span>
+<span class="c">-- One row per cross-shard link (EXTENSIONS_REGISTRY.md)</span>
+<span class="kw">src_claim_id</span>     <span class="op">VARCHAR</span>  <span class="c">-- claim in THIS shard</span>
+<span class="kw">relation_type</span>    <span class="op">VARCHAR</span>  <span class="c">-- supports | contradicts |
+                          -- derives_from | supersedes | cites</span>
+<span class="kw">dst_shard_id</span>     <span class="op">VARCHAR</span>  <span class="c">-- target identity, sh1_&lt;64 hex&gt;</span>
+<span class="kw">dst_object_type</span>  <span class="op">VARCHAR</span>  <span class="c">-- claim | entity | shard</span>
+<span class="kw">dst_object_id</span>    <span class="op">VARCHAR</span>  <span class="c">-- target claim_id / entity_id</span>
+<span class="kw">confidence</span>       <span class="op">VARCHAR</span>  <span class="c">-- decimal string in [0,1]</span>
+<span class="kw">note</span>             <span class="op">VARCHAR</span>  <span class="c">-- "" if none</span>
 </pre>
     </div>
 
@@ -1190,22 +1159,21 @@ conn.<span class="fn">execute</span>(<span class="st">"""
         <div class="code-block-dot" style="background:#f85149"></div>
         <div class="code-block-dot" style="background:#d29922"></div>
         <div class="code-block-dot" style="background:#3fb950"></div>
-        <span class="code-block-title">Cross-shard reference query</span>
+        <span class="code-block-title">Evidence join — run against the gold shard</span>
       </div>
       <pre>
-<span class="c">-- Find all decisions and their source conversations</span>
-<span class="kw">SELECT</span>
-  d.decision_text,
-  r.target_shard_id  <span class="kw">AS</span> source_shard,
-  r.claim_text       <span class="kw">AS</span> supporting_claim,
-  r.reference_type
-<span class="kw">FROM</span> decisions d
-<span class="kw">JOIN</span> read_parquet(
-  <span class="st">'~/.axm/shards/*/ext/references&#64;1.parquet'</span>,
-  union_by_name = <span class="kw">true</span>
-) r <span class="kw">ON</span> d.episode_id = r.episode_id
-<span class="kw">WHERE</span> r.reference_type = <span class="st">'supersedes'</span>
-<span class="kw">ORDER BY</span> d.created_at <span class="kw">DESC</span>
+<span class="c">-- Every claim with its sealed evidence text</span>
+<span class="kw">SELECT</span> c.claim_id, s.text <span class="kw">AS</span> evidence
+<span class="kw">FROM</span> claims c
+<span class="kw">JOIN</span> provenance p <span class="kw">ON</span> c.claim_id = p.claim_id
+<span class="kw">JOIN</span> spans s <span class="kw">ON</span> p.source_hash = s.source_hash
+          <span class="kw">AND</span> p.byte_start  = s.byte_start
+          <span class="kw">AND</span> p.byte_end    = s.byte_end;
+
+<span class="c">-- ✓ 3 rows · 3.0 ms — e.g.</span>
+<span class="c">-- c1_6sdyun7gz4vhk6elt6mnz... →</span>
+<span class="c">--   "tourniquet can be used to control</span>
+<span class="c">--    bleeding from a limb. It should not …"</span>
 </pre>
     </div>
   </div>
@@ -1215,25 +1183,20 @@ conn.<span class="fn">execute</span>(<span class="st">"""
       <div class="code-block-dot" style="background:#f85149"></div>
       <div class="code-block-dot" style="background:#d29922"></div>
       <div class="code-block-dot" style="background:#3fb950"></div>
-      <span class="code-block-title">lineage&#64;1.parquet — supersession chain</span>
+      <span class="code-block-title">ext/lineage&#64;1.jsonl — supersession record</span>
     </div>
     <pre>
-<span class="c">-- Walk the supersession chain for the Merkle format decision</span>
-<span class="kw">WITH RECURSIVE</span> chain <span class="kw">AS</span> (
-  <span class="c">-- anchor: find the original decision</span>
-  <span class="kw">SELECT</span> episode_id, decision_text, superseded_by, <span class="nu">0</span> <span class="kw">AS</span> depth
-  <span class="kw">FROM</span> decisions
-  <span class="kw">WHERE</span> <span class="fn">lower</span>(decision_text) <span class="kw">LIKE</span> <span class="st">'%merkle%'</span>
-    <span class="kw">AND</span> superseded_by <span class="kw">IS NULL</span>
+<span class="c">-- Registry schema (EXTENSIONS_REGISTRY.md). Note what is NOT here:</span>
+<span class="c">-- a shard's own id. Identity is derived from the manifest bytes</span>
+<span class="c">-- (sh1_ + BLAKE3) and never appears inside the shard's own files.</span>
+<span class="kw">supersedes_shard_id</span>  <span class="op">VARCHAR</span>  <span class="c">-- predecessor, sh1_&lt;64 hex&gt; form</span>
+<span class="kw">action</span>               <span class="op">VARCHAR</span>  <span class="c">-- supersede | amend | retract</span>
+<span class="kw">timestamp</span>            <span class="op">VARCHAR</span>  <span class="c">-- RFC 3339</span>
+<span class="kw">note</span>                 <span class="op">VARCHAR</span>  <span class="c">-- "" if none</span>
 
-  <span class="kw">UNION ALL</span>
-
-  <span class="c">-- recurse: find what superseded it</span>
-  <span class="kw">SELECT</span> d.episode_id, d.decision_text, d.superseded_by, chain.depth + <span class="nu">1</span>
-  <span class="kw">FROM</span> decisions d
-  <span class="kw">JOIN</span> chain <span class="kw">ON</span> d.superseded_by = chain.episode_id
-)
-<span class="kw">SELECT</span> * <span class="kw">FROM</span> chain <span class="kw">ORDER BY</span> depth
+<span class="c">-- The manifest's own `supersedes` array uses the same sh1_ form —</span>
+<span class="c">-- each element MUST match ^sh1_[0-9a-f]{64}$ (spec section 6).</span>
+<span class="c">-- Spectra mounts this table into the cross-shard `lineage` union view.</span>
 </pre>
   </div>
 </section>
@@ -1245,85 +1208,80 @@ conn.<span class="fn">execute</span>(<span class="st">"""
     <span class="sec-title">Query Examples</span>
   </div>
   <h2>Ask in English.<br>Get rows.</h2>
-  <p style="margin-bottom:0;">Spectra classifies these queries and executes parameterized SQL. No LLM call at query time.</p>
+  <p style="margin-bottom:0;">Every query below was actually executed against the gold shard <code>fm21-11-hemorrhage-v2</code> (the union-count card also mounts the Forge-built shard from §03). Row counts and timings are from those runs. NL queries go through <code>natural_language_to_query</code>; no LLM call anywhere.</p>
 
   <div class="query-grid">
     <div class="query-card">
       <div class="query-input">
-        <span class="query-prompt">$</span>
-        <span>axm-core spectra "what decisions have we made"</span>
+        <span class="query-prompt">&gt;&gt;&gt;</span>
+        <span>natural_language_to_query("what treats severe bleeding")</span>
       </div>
-      <div class="query-sql"><span class="kw">SELECT</span> episode_id, decision_text, rationale
-<span class="kw">FROM</span> decisions
-<span class="kw">ORDER BY</span> created_at <span class="kw">DESC</span>
-<span class="kw">LIMIT</span> <span class="nu">20</span></div>
-      <div class="query-result">✓ 14 rows · 3ms</div>
+      <div class="query-sql"><span class="kw">SELECT DISTINCT</span> COALESCE(se.label, c.subject) <span class="kw">AS</span> subject,
+       c.predicate, COALESCE(oe.label, c.object) <span class="kw">AS</span> object, c.tier
+<span class="kw">FROM</span> claims c
+<span class="kw">LEFT JOIN</span> entities se <span class="kw">ON</span> c.subject = se.entity_id
+<span class="kw">LEFT JOIN</span> entities oe <span class="kw">ON</span> c.object = oe.entity_id
+<span class="kw">WHERE</span> ... <span class="kw">LIKE</span> ? <span class="c">-- bound params, abridged</span></div>
+      <div class="query-result">✓ 3 rows · 3.8ms — direct pressure · pressure dressing · tourniquet</div>
     </div>
 
     <div class="query-card">
       <div class="query-input">
-        <span class="query-prompt">$</span>
-        <span>axm-core spectra "what failed before we solved the merkle problem"</span>
+        <span class="query-prompt">&gt;&gt;&gt;</span>
+        <span>natural_language_to_query("find tourniquet")</span>
       </div>
-      <div class="query-sql"><span class="kw">SELECT</span> problem, graveyard, solution
-<span class="kw">FROM</span> engineering
-<span class="kw">WHERE</span> lower(problem) <span class="kw">LIKE</span> <span class="st">'%merkle%'</span>
-  <span class="kw">AND</span> graveyard <span class="kw">IS NOT NULL</span>
-<span class="kw">ORDER BY</span> created_at</div>
-      <div class="query-result">✓ 3 rows · 6ms</div>
+      <div class="query-sql"><span class="c">-- same label-join shape, params ['%tourniquet%', ...]</span>
+<span class="kw">SELECT DISTINCT</span> ... <span class="kw">FROM</span> claims c
+<span class="kw">LEFT JOIN</span> entities se ... <span class="kw">WHERE</span> ... <span class="kw">LIKE</span> ?</div>
+      <div class="query-result">✓ 2 rows · 4.0ms — treats severe bleeding · contraindicated_for broken bone</div>
     </div>
 
     <div class="query-card">
       <div class="query-input">
-        <span class="query-prompt">$</span>
-        <span>axm-core spectra "what changed since january"</span>
+        <span class="query-prompt">&gt;&gt;&gt;</span>
+        <span>Predicate histogram over the claims union view</span>
       </div>
-      <div class="query-sql"><span class="kw">SELECT</span> episode_id, topic, state, created_at
-<span class="kw">FROM</span> episodes
-<span class="kw">WHERE</span> created_at >= <span class="st">'2026-01-01'</span>
-<span class="kw">ORDER BY</span> created_at <span class="kw">DESC</span></div>
-      <div class="query-result">✓ 47 rows · 4ms</div>
+      <div class="query-sql"><span class="kw">SELECT</span> predicate, count(*) <span class="kw">AS</span> n
+<span class="kw">FROM</span> claims
+<span class="kw">GROUP BY</span> <span class="nu">1</span>
+<span class="kw">ORDER BY</span> n <span class="kw">DESC</span></div>
+      <div class="query-result">✓ treats 3 · supports 2 · contraindicated_for 1 · 4.9ms</div>
     </div>
 
     <div class="query-card">
       <div class="query-input">
-        <span class="query-prompt">$</span>
-        <span>axm-core spectra "show me all superseded decisions"</span>
+        <span class="query-prompt">&gt;&gt;&gt;</span>
+        <span>Resolve entity ids to labels</span>
       </div>
-      <div class="query-sql"><span class="kw">SELECT</span> d.decision_text, l.reason,
-       l.superseded_by
-<span class="kw">FROM</span> decisions d
-<span class="kw">JOIN</span> lineage l <span class="kw">USING</span> (episode_id)
-<span class="kw">WHERE</span> l.superseded_by <span class="kw">IS NOT NULL</span></div>
-      <div class="query-result">✓ 8 rows · 5ms</div>
+      <div class="query-sql"><span class="kw">SELECT</span> se.label <span class="kw">AS</span> subject, c.predicate, oe.label <span class="kw">AS</span> object
+<span class="kw">FROM</span> claims c
+<span class="kw">JOIN</span> entities se <span class="kw">ON</span> c.subject = se.entity_id
+<span class="kw">JOIN</span> entities oe <span class="kw">ON</span> c.object = oe.entity_id
+<span class="kw">WHERE</span> c.predicate = <span class="st">'treats'</span></div>
+      <div class="query-result">✓ 3 rows · 3.2ms — ids are e1_/c1_ full-digest base32</div>
     </div>
 
     <div class="query-card">
       <div class="query-input">
-        <span class="query-prompt">$</span>
-        <span>axm-core spectra "who have we mentioned across all shards"</span>
+        <span class="query-prompt">&gt;&gt;&gt;</span>
+        <span>Claims joined to their sealed evidence bytes</span>
       </div>
-      <div class="query-sql"><span class="kw">SELECT DISTINCT</span> unnest(people) <span class="kw">AS</span> person,
-       count(*) <span class="kw">AS</span> mentions
-<span class="kw">FROM</span> episodes
-<span class="kw">WHERE</span> people <span class="kw">IS NOT NULL</span>
-<span class="kw">GROUP BY</span> person
-<span class="kw">ORDER BY</span> mentions <span class="kw">DESC</span></div>
-      <div class="query-result">✓ 23 rows · 9ms</div>
+      <div class="query-sql"><span class="kw">SELECT</span> c.claim_id, s.text <span class="kw">AS</span> evidence
+<span class="kw">FROM</span> claims c
+<span class="kw">JOIN</span> provenance p <span class="kw">ON</span> c.claim_id = p.claim_id
+<span class="kw">JOIN</span> spans s <span class="kw">ON</span> p.source_hash = s.source_hash
+  <span class="kw">AND</span> p.byte_start = s.byte_start <span class="kw">AND</span> p.byte_end = s.byte_end</div>
+      <div class="query-result">✓ 3 rows · 3.0ms — every claim traceable to source bytes</div>
     </div>
 
     <div class="query-card">
       <div class="query-input">
-        <span class="query-prompt">$</span>
-        <span>axm-core spectra "what tools have we used"</span>
+        <span class="query-prompt">&gt;&gt;&gt;</span>
+        <span>Cross-shard union — gold shard + freshly forged shard</span>
       </div>
-      <div class="query-sql"><span class="kw">SELECT DISTINCT</span> unnest(tools) <span class="kw">AS</span> tool,
-       count(*) <span class="kw">AS</span> occurrences
-<span class="kw">FROM</span> episodes
-<span class="kw">WHERE</span> tools <span class="kw">IS NOT NULL</span>
-<span class="kw">GROUP BY</span> tool
-<span class="kw">ORDER BY</span> occurrences <span class="kw">DESC</span></div>
-      <div class="query-result">✓ 11 rows · 7ms</div>
+      <div class="query-sql"><span class="c">-- after engine.mount(...) × 2</span>
+<span class="kw">SELECT</span> count(*) <span class="kw">FROM</span> claims</div>
+      <div class="query-result">✓ (9,) · 1.6ms — 6 gold + 3 forged claims in one view</div>
     </div>
   </div>
 </section>
@@ -1340,54 +1298,57 @@ conn.<span class="fn">execute</span>(<span class="st">"""
     <div class="install-card">
       <div class="install-phase">Install</div>
       <pre style="font-size:12px;line-height:1.75;">
-<span class="c"># Install axm-genesis first (required dep)</span>
-<span class="kw">pip install -e</span> <span class="pa">./axm-genesis</span>
+<span class="c"># From the axm-core checkout. The pinned axm-genesis</span>
+<span class="c"># kernel is pulled automatically; the [mldsa-compat]</span>
+<span class="c"># extra gives axm-verify its ML-DSA-44 backend.</span>
+<span class="kw">python -m venv</span> <span class="pa">.venv</span>
+<span class="kw">source</span> <span class="pa">.venv/bin/activate</span>
+<span class="kw">pip install -e</span> <span class="st">".[mldsa-compat]"</span>
 
-<span class="c"># Install axm-core</span>
-<span class="kw">pip install -e</span> <span class="pa">./axm-core</span>
-
-<span class="c"># Optional: install a spoke to generate shards</span>
-<span class="kw">pip install -e</span> <span class="pa">./axm-chat</span>
+<span class="c"># Install forge separately (its own pyproject)</span>
+<span class="kw">pip install -e</span> <span class="pa">./forge</span>
 </pre>
     </div>
 
     <div class="install-card">
       <div class="install-phase">Forge a shard</div>
       <pre style="font-size:12px;line-height:1.75;">
-<span class="c"># Compile a document into a Knowledge Shard</span>
-<span class="kw">axm-forge compile</span> <span class="pa">./document.pdf</span> \
-  <span class="op">--signing-key</span> <span class="pa">keys/publisher.pem</span>
+<span class="c"># Compile structured docs into a Knowledge Shard</span>
+<span class="c"># (tier 0/1 only — no LLM needed)</span>
+<span class="kw">python forge_run.py</span> <span class="op">--input</span> <span class="pa">./docs_dir/</span> \
+  <span class="op">--output</span> <span class="pa">./out/shard/</span> <span class="op">--skip-llm</span>
 
-<span class="c"># Verify it immediately</span>
-<span class="kw">axm-verify shard</span> <span class="pa">~/.axm/shards/document-v1/</span> \
-  <span class="op">--trusted-key</span> <span class="pa">keys/publisher.pub</span>
-<span class="ok">→ {"status":"PASS","error_count":0}</span>
+<span class="c"># Verify it immediately (exit 0/1/2)</span>
+<span class="kw">axm-verify shard</span> <span class="pa">./out/shard/shard</span> \
+  <span class="op">--trusted-key</span> <span class="pa">./out/shard/keys/publisher.pub</span>
+<span class="ok">→ {"status": "PASS", "error_count": 0, ...}</span>
 </pre>
     </div>
 
     <div class="install-card">
-      <div class="install-phase">Query</div>
+      <div class="install-phase">Prove it</div>
       <pre style="font-size:12px;line-height:1.75;">
-<span class="c"># Natural language via Spectra</span>
-<span class="kw">axm-core spectra</span> <span class="st">"what decisions have we made"</span>
-<span class="kw">axm-core spectra</span> <span class="st">"what failed last week"</span>
-<span class="kw">axm-core spectra</span> <span class="st">"what changed since january"</span>
+<span class="c"># Verify the gold shard (axm-genesis is assumed</span>
+<span class="c"># checked out as a sibling of this repo)</span>
+<span class="kw">axm-verify shard</span> <span class="pa">../axm-genesis/shards/gold/fm21-11-hemorrhage-v2/</span> \
+  <span class="op">--trusted-key</span> <span class="pa">../axm-genesis/keys/gold-v2-provisional.pub</span>
+<span class="ok">→ {"status": "PASS", ...}   exit 0</span>
 
-<span class="c"># Raw DuckDB SQL directly</span>
-<span class="kw">axm-core query</span> <span class="op">--sql</span> <span class="st">"SELECT * FROM episodes LIMIT 5"</span>
-
-<span class="c"># All shards. All parquet. In memory.</span>
+<span class="c"># Health check + test suite</span>
+<span class="kw">python</span> <span class="pa">scripts/doctor.py</span>      <span class="ok"># → "status": "PASS"</span>
+<span class="kw">python -m pytest</span> <span class="pa">tests/</span> <span class="op">-q</span>   <span class="ok"># → 37 passed</span>
 </pre>
     </div>
 
     <div class="install-card">
       <div class="install-phase">Ecosystem</div>
       <pre style="font-size:12px;line-height:1.75;">
-<span class="c"># axm-genesis  — cryptographic kernel</span>
-<span class="c">#               BLAKE3 + ML-DSA-44 + axm-verify</span>
+<span class="c"># axm-genesis  — cryptographic kernel (frozen v1)</span>
+<span class="c">#               BLAKE3 + axm-hybrid1 + axm-verify</span>
+<span class="c">#               (Ed25519 ‖ ML-DSA-44, both must verify)</span>
 
 <span class="c"># axm-core     — this package</span>
-<span class="c">#               Spectra + Forge + DuckDB runtime</span>
+<span class="c">#               Spectra + Forge + Clarion + DuckDB runtime</span>
 
 <span class="c"># axm-chat     — spoke: conversation shards</span>
 <span class="c"># axm-show     — spoke: drone show telemetry</span>
@@ -1406,7 +1367,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
     <a href="https://bigbirdreturns.github.io/axm-chat/">axm-chat</a>
     <a href="https://github.com/BigBirdReturns/axm-core">GitHub</a>
   </div>
-  <span class="footer-meta">Query runtime · No LLM at query time · DuckDB + Parquet</span>
+  <span class="footer-meta">Genesis v1 hub · No LLM at query time · DuckDB + canonical JSONL</span>
 </footer>
 
 <script>
