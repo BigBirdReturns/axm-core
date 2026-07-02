@@ -5,10 +5,10 @@ This module handles the Forge → Genesis handoff.
 
 THE CONTRACT:
 - Forge extracts → candidates.jsonl + source.txt
-- Genesis compiles → verified shard
+- Genesis compiles → verified shard (v1: axm-hybrid1 suite, canonical JSONL)
 - axm-verify is THE authority
 
-Genesis 1.0 is FROZEN. This module calls it, does not modify it.
+Genesis v1 is FROZEN. This module calls it, does not modify it.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import secrets
 import subprocess
 import tempfile
@@ -24,6 +23,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import blake3
+
+from axm_build.compiler_generic import CompilerConfig, compile_generic_shard
+from axm_build.sign import HYBRID1_SK_LEN, hybrid1_keygen
 
 from axm_forge.models.claims import Claim
 
@@ -38,11 +42,19 @@ from axm_forge.models.claims import Claim
 
 @dataclass
 class EmissionConfig:
-    """Configuration for shard emission."""
+    """Configuration for shard emission.
+
+    private_key_hex: hex encoding of the 3904-byte axm-hybrid1 secret key
+    blob (generate one with `axm-build keygen` or hybrid1_keygen()). When
+    None, a throwaway keypair is generated per emission — such a signature
+    proves integrity, never authenticity.
+    """
     namespace: str = "forge/default"
     publisher_id: str = "@forge"
     publisher_name: str = "Forge Extraction Pipeline"
     private_key_hex: Optional[str] = None
+    title: str = ""
+    license_spdx: str = "UNLICENSED"
     encrypt: bool = False
     user_secret_b64: Optional[str] = None
 
@@ -72,7 +84,7 @@ class Candidate:
     subject: str
     predicate: str
     object: str
-    object_type: str  # "entity" or "literal:string", "literal:number"
+    object_type: str  # "entity" or "literal:string", "literal:integer", "literal:decimal", "literal:boolean"
     evidence: str     # EXACT substring from source
     tier: int = 0
     confidence: float = 1.0
@@ -139,6 +151,36 @@ def write_candidates_jsonl(path: Path, candidates: List[Candidate]) -> None:
 # GENESIS BUILD AND VERIFY INTEGRATION
 # ============================================================================
 
+def resolve_private_key(private_key_hex: Optional[str]) -> bytes:
+    """Resolve the 3904-byte hybrid1 secret key blob for signing.
+
+    - hex given: decode and validate the length. Key material of an
+      unexpected size raises — never silently falls back to a fresh key
+      (that would mint shards under an identity nobody controls).
+    - None: generate a throwaway keypair for this emission.
+    """
+    if private_key_hex:
+        try:
+            blob = bytes.fromhex(private_key_hex.strip())
+        except ValueError as e:
+            raise ValueError(f"private_key_hex is not valid hex: {e}") from e
+        if len(blob) != HYBRID1_SK_LEN:
+            raise ValueError(
+                f"private_key_hex must decode to a {HYBRID1_SK_LEN}-byte "
+                f"axm-hybrid1 secret key blob, got {len(blob)} bytes "
+                "(generate one with `axm-build keygen`)"
+            )
+        return blob
+    _pub, secret = hybrid1_keygen()
+    return secret
+
+
+def derive_shard_id(shard_dir: Path) -> str:
+    """Shard identity is derived, never stored (Genesis spec section 9)."""
+    manifest_bytes = (Path(shard_dir) / "manifest.json").read_bytes()
+    return "sh1_" + blake3.blake3(manifest_bytes).hexdigest()
+
+
 def call_axm_build(
     source_path: Path,
     candidates_path: Path,
@@ -149,64 +191,41 @@ def call_axm_build(
     publisher_name: str,
     private_key_hex: Optional[str] = None,
     created_at: Optional[str] = None,
+    title: str = "",
+    license_spdx: str = "UNLICENSED",
 ) -> Tuple[bool, str, Optional[Path]]:
-    """Call Genesis axm-build to compile candidates into verified shard.
-    
+    """Compile candidates into a signed v1 shard via the Genesis compiler.
+
+    Uses the programmatic surface (axm_build.compiler_generic.CompilerConfig /
+    compile_generic_shard) rather than the CLI: the CLI `compile` command
+    stamps a fixed publisher identity, while spokes must make theirs explicit.
+
     Returns:
         (success, message, shard_path)
-    
-    Genesis CLI signature (from axm_build/cli.py):
-        python -m axm_build.cli compile <source> 
-            --candidates <path>
-            --out <dir>
-            --key <hex>
-            --namespace <ns>
-            --publisher-id <id>
-            --publisher-name <name>
-            --created-at <iso>
     """
     if created_at is None:
-        created_at = datetime.now(timezone.utc).isoformat()
-    
-    # Build command with correct flags
-    cmd = [
-        "python", "-m", "axm_build.cli", "compile",
-        str(source_path),
-        "--candidates", str(candidates_path),
-        "--out", str(out_dir),
-        "--namespace", namespace,
-        "--publisher-id", publisher_id,
-        "--publisher-name", publisher_name,
-        "--created-at", created_at,
-    ]
-    
-    # Add key if provided
-    env = os.environ.copy()
-    if private_key_hex:
-        cmd.extend(["--key", private_key_hex])
-        env["AXM_PRIVATE_KEY"] = private_key_hex
-    
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=300,
+        private_key = resolve_private_key(private_key_hex)
+        cfg = CompilerConfig(
+            source_path=Path(source_path),
+            candidates_path=Path(candidates_path),
+            out_dir=Path(out_dir),
+            private_key=private_key,
+            publisher_id=publisher_id,
+            publisher_name=publisher_name,
+            namespace=namespace,
+            created_at=created_at,
+            title=title,
+            license_spdx=license_spdx,
         )
-        
-        if result.returncode == 0:
-            return True, result.stdout.strip(), out_dir
-        else:
-            error_msg = result.stderr or result.stdout
-            return False, f"axm-build failed: {error_msg}", None
-            
-    except FileNotFoundError:
-        return False, "python or axm_build module not found in PATH", None
-    except subprocess.TimeoutExpired:
-        return False, "axm-build timed out after 300 seconds", None
+        ok = compile_generic_shard(cfg)
+        if ok:
+            return True, "compiled and self-verified", Path(out_dir)
+        return False, "Genesis compiler rejected its own output (self-verify failed)", None
     except Exception as e:
-        return False, f"axm-build error: {str(e)}", None
+        return False, f"axm-build error: {e}", None
 
 
 def call_axm_verify(
@@ -316,9 +335,10 @@ def emit_genesis_shard(
         # Determine shard output path
         shard_name = f"{config.namespace.replace('/', '-')}-{doc_id}"
         shard_dir = out_dir / shard_name
-        created_at = datetime.now(timezone.utc).isoformat()
-        
-        # Call axm-build
+        # RFC 3339 UTC with the Z designator — the v1 manifest format.
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Call the Genesis compiler
         success, message, _ = call_axm_build(
             source_path=source_path,
             candidates_path=candidates_path,
@@ -328,6 +348,8 @@ def emit_genesis_shard(
             publisher_name=config.publisher_name,
             private_key_hex=config.private_key_hex,
             created_at=created_at,
+            title=config.title or doc_id,
+            license_spdx=config.license_spdx,
         )
         
         if not success:
@@ -354,9 +376,8 @@ def emit_genesis_shard(
             message=f"Verification failed: {verify_result}",
         )
     
-    # Read shard_id from manifest
-    manifest = json.loads((shard_dir / "manifest.json").read_text())
-    shard_id = manifest.get("shard_id")
+    # Shard identity is derived from the manifest bytes, never stored in it.
+    shard_id = derive_shard_id(shard_dir)
     
     # Optional: encrypt with Clarion
     envelope_path = None

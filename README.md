@@ -52,13 +52,9 @@ axm-<other>     (future spokes)
 
 `axm-core` does not vendor `axm-genesis`. The genesis kernel is a declared dependency pinned to an exact commit.
 
-> **Known issue (v1.2.0 tag):** the `v1.2.0` compiler writes `created_at` at the
-> manifest top level; the strict verifier introduced after v1.2.0 requires
-> `metadata.created_at` and rejects such shards with `E_MANIFEST_SCHEMA`. This
-> repo therefore pins the fix commit on branch
-> `claude/durability-report-test-fixes-4hbf2v` rather than the `v1.2.0` tag.
-> Shards built with the old v1.2.0 snapshot fail strict verification until
-> rebuilt.
+> Genesis v1 (RFC 0002) has landed and this repo pins it; all shards built
+> before v1 are v0.x prototypes and cannot be verified by v1 (their history
+> lives in git).
 
 ## Quick Start
 
@@ -75,12 +71,12 @@ pip install -e ./forge
 # Verify the gold shard. The installed axm-genesis wheel does not ship shard
 # data; the gold shard lives in the axm-genesis repo checkout, assumed here to
 # be a sibling of this repo.
-axm-verify shard ../axm-genesis/shards/gold/fm21-11-hemorrhage-v1/ \
-  --trusted-key ../axm-genesis/keys/canonical_test_publisher.pub
+axm-verify shard ../axm-genesis/shards/gold/fm21-11-hemorrhage-v2/ \
+  --trusted-key ../axm-genesis/keys/gold-v2-provisional.pub
 
 # Health check (verifies layout, deps, and gold shard) and tests
 python scripts/doctor.py       # → "status": "PASS"
-python -m pytest tests/ -q     # → 32 passed
+python -m pytest tests/ -q     # → 37 passed
 ```
 
 ## Creating a Shard
@@ -137,7 +133,13 @@ Mount a shard, query in natural language, click any citation to verify source by
 
 ## What's frozen (from axm-genesis)
 
-The shard layout, Merkle computation, Parquet schemas, identifier generation, and the gold shard (`fm21-11-hemorrhage-v1`) are frozen in the Genesis spec. The gold shard is the definition of correctness.
+The shard layout, canonical-JSONL table encoding, Merkle computation, the
+`axm-hybrid1` signature suite, identifier generation, and the gold shard
+(`fm21-11-hemorrhage-v2`) are frozen in the Genesis v1 spec
+(`spec/v1/SPECIFICATION.md`). The conformance vectors and the gold shard are
+the definition of correctness. Shards carry no Parquet: Spectra loads the
+JSONL tables into DuckDB at mount time (a rebuildable cache that lives
+outside the shard directory).
 
 See `INVARIANTS.md` for absolute constraints on all changes.
 
@@ -159,16 +161,19 @@ See `INVARIANTS.md` for absolute constraints on all changes.
 
 | Suite | Algorithm | Status |
 |-------|-----------|--------|
-| Ed25519 | Ed25519 | Legacy, backward compatible |
-| `axm-blake3-mldsa44` | ML-DSA-44 (FIPS 204) | Default for new shards |
+| `axm-hybrid1` | Ed25519 ‖ ML-DSA-44 (FIPS 204) — both must verify | The one and only v1 suite |
 
-Both use Blake3 for hashing. Merkle construction differs by suite: Ed25519 uses duplicate odd-leaf; axm-blake3-mldsa44 uses RFC 6962 odd-leaf promotion with domain separation. Old shards verify under new verifiers, with one known exception: shards built by the v1.2.0 compiler snapshot carry a top-level `created_at` and fail the post-v1.2.0 strict manifest check (see the known-issue note above).
+Hashing is BLAKE3 (Merkle tree, shard identity) with RFC 6962 odd-leaf
+promotion and domain separation. Keys: 3904-byte secret blob, 1344-byte
+public key, 2484-byte signature (`axm-build keygen` generates pairs). The
+old `ed25519` and `axm-blake3-mldsa44` suites are gone: shards built with
+them are v0.x prototypes and cannot be verified by v1.
 
-> **Roadmap.** Genesis [RFC 0002](https://github.com/BigBirdReturns/axm-genesis/blob/main/rfcs/0002-v1-reset.md)
-> (accepted 2026-07-02) replaces both suites with one hybrid suite
-> (`axm-hybrid1`) and moves core tables to canonical JSONL. When it lands,
-> Spectra will build its Parquet query cache from JSONL at mount time; this
-> repo will re-pin and adapt.
+> **Roadmap note — done.** Genesis [RFC 0002](https://github.com/BigBirdReturns/axm-genesis/blob/main/rfcs/0002-v1-reset.md)
+> (accepted 2026-07-02) landed: one hybrid suite (`axm-hybrid1`), canonical
+> JSONL core tables, derived shard identity. This repo is re-pinned and
+> adapted: Spectra loads the JSONL tables into DuckDB at mount time
+> (rebuildable cache outside the shard directory).
 
 ## License
 

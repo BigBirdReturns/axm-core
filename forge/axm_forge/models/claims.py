@@ -82,9 +82,9 @@ def _stable_json_bytes(obj: Any) -> bytes:
 # compilation. The Genesis compiler (axm_build.compiler_generic) RECOMPUTES all
 # entity/claim IDs from candidate content via axm_verify.identity
 # (recompute_entity_id / recompute_claim_id, "e_..."/"c_..." SHA-256 b32 IDs),
-# so these local IDs never reach the sealed parquet tables (INV-7/8/27).
+# so these local IDs never reach the sealed JSONL tables (INV-7/8/27).
 # Anything that must join against the sealed graph (e.g. derivation passes
-# emitting ext/ parquet) must delegate to axm_verify.identity instead.
+# or derived caches) must delegate to axm_verify.identity instead.
 # ---------------------------------------------------------------------------
 
 def make_entity_id(doc_id: str, kind: str, name: str) -> str:

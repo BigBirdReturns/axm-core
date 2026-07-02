@@ -1,21 +1,24 @@
 """
 Temporal Derivation Pass
 
-Reads candidates.jsonl, finds claims with date/time values,
-writes temporal.parquet: {claim_id, valid_from, valid_until, temporal_context}.
+Detects claims with date/time values in candidates.jsonl.
 
-Runs BEFORE Genesis compilation: the output parquet is staged and injected
-into the shard's ext/ directory by the compile step so it is covered by the
-Merkle root (sealed). Because of that, claim_ids cannot be read from the
-compiled graph — instead they are recomputed here with the exact same
-algorithm the Genesis compiler uses (axm_verify.identity.recompute_claim_id
-over the same inputs axm_build.compiler_generic derives from each candidate),
-so every claim_id in temporal.parquet matches the sealed graph/claims.parquet.
+Genesis v1 path (canonical): `annotate_temporal_candidates` adds
+valid_from / valid_until / temporal_context keys to the candidate rows
+in place, BEFORE compilation. The v1 compiler
+(axm_build.compiler_generic) reads those keys and emits the sealed
+ext/temporal@1.jsonl itself — nothing is ever injected into the shard
+directory from outside the compiler.
 
-Schema: ext/temporal.parquet (temporal@1)
-  claim_id         string  — joins to graph/claims.parquet
-  valid_from       string  — ISO 8601 or empty
-  valid_until      string  — ISO 8601 or empty
+`run_temporal_pass` (legacy) writes a derived temporal.parquet for local
+runtime caches only. Its output must live OUTSIDE any shard directory:
+v1 shards carry no Parquet, and their ext/ tables are compiler-emitted
+canonical JSONL.
+
+temporal@1 schema (ext/temporal@1.jsonl):
+  claim_id         string  — joins to graph/claims.jsonl
+  valid_from       string  — RFC 3339 or empty
+  valid_until      string  — RFC 3339 or empty
   temporal_context string  — human-readable note
 """
 from __future__ import annotations
@@ -72,6 +75,47 @@ def _extract_date(text: str) -> Optional[str]:
     return None
 
 
+def annotate_temporal_candidates(candidates_path: Path) -> int:
+    """Annotate temporal candidates in place for the v1 Genesis compiler.
+
+    Rewrites candidates.jsonl, adding valid_from / valid_until /
+    temporal_context keys to every candidate whose predicate or object
+    looks temporal. The compiler turns those keys into the sealed
+    ext/temporal@1.jsonl (one row per claim_id).
+
+    Returns the number of candidates annotated.
+    """
+    candidates_path = Path(candidates_path)
+    if not candidates_path.exists():
+        return 0
+
+    rows: List[Dict[str, Any]] = []
+    annotated = 0
+    with candidates_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            c = json.loads(line)
+            pred = str(c.get("predicate", "")).strip()
+            obj = str(c.get("object", "")).strip()
+            if pred and _is_temporal(pred, obj) and not (
+                c.get("valid_from") or c.get("valid_until") or c.get("temporal_context")
+            ):
+                valid_from = _extract_date(obj) or _extract_date(str(c.get("evidence", ""))) or ""
+                c["valid_from"] = valid_from
+                c["valid_until"] = ""
+                c["temporal_context"] = f"{pred}: {obj}"
+                annotated += 1
+            rows.append(c)
+
+    if annotated:
+        with candidates_path.open("w", encoding="utf-8") as f:
+            for c in rows:
+                f.write(json.dumps(c, ensure_ascii=False) + "\n")
+    return annotated
+
+
 def run_temporal_pass(
     candidates_path: Path,
     out_dir: Path,
@@ -81,8 +125,9 @@ def run_temporal_pass(
 ) -> Dict[str, Any]:
     """
     Scan candidates.jsonl for temporal claims and write temporal.parquet
-    into out_dir (a staging directory; the compile step injects it into the
-    shard's ext/ before the Merkle root is computed).
+    into out_dir — a LOCAL DERIVED CACHE directory, never a shard: v1
+    shards carry no Parquet, and sealed temporal rows come from
+    `annotate_temporal_candidates` + the v1 compiler instead.
 
     namespace:   shard namespace — must match what is passed to the Genesis
                  compiler, since entity/claim IDs are namespace-scoped.
@@ -90,7 +135,7 @@ def run_temporal_pass(
                  the Genesis compiler would drop (evidence not found exactly
                  once in the normalized content bytes) are skipped here too,
                  guaranteeing every emitted claim_id exists in the sealed
-                 graph/claims.parquet.
+                 graph/claims.jsonl.
 
     Returns stats dict.
     """
@@ -165,9 +210,7 @@ def run_temporal_pass(
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Bare on-disk filename: the genesis compiler appends @1 to the stem to
-    # build the INV-29 manifest extension name (temporal -> temporal@1).
-    # A temporal@1.parquet filename would double it to temporal@1@1.
+    # Derived cache only — this file must stay outside any shard directory.
     out_path = out_dir / "temporal.parquet"
     _write_parquet(out_path, rows)
 

@@ -5,8 +5,9 @@ Reads candidates.jsonl, computes per-predicate extraction confidence statistics,
 writes a summary report (JSON, not parquet — confidence is metadata, not a shard
 extension needed for queries).
 
-Can optionally be extended to write ext/confidence.parquet when a formal
-schema is ratified in EXTENSIONS_REGISTRY.md.
+Could become a registered extension (canonical JSONL, name@version) if a
+formal schema is ever ratified in EXTENSIONS_REGISTRY.md; until then it
+stays a local report outside the shard.
 
 Adapted from axm-kg derive/confidence.py — simplified to operate on
 candidates.jsonl tier+confidence fields rather than the old Program model.

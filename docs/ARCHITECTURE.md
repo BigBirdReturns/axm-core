@@ -32,14 +32,14 @@ The frozen cryptographic protocol. Nothing in the stack changes this without an 
 
 | Package | Purpose |
 |---------|---------|
-| `axm_build` | Compiler, Merkle tree, signing, manifest |
-| `axm_verify` | Verifier, error codes, Parquet schemas, identity (`recompute_entity_id`/`recompute_claim_id`) |
+| `axm_build` | Compiler, Merkle tree, axm-hybrid1 signing, manifest |
+| `axm_verify` | Verifier, error codes, canonical JSONL table schemas, identity (`recompute_entity_id`/`recompute_claim_id`) |
 
 The kernel is **only** `axm_build` + `axm_verify`. Document ingestion, extraction,
 chunking, and stream judging are **not** part of genesis — they live in core/forge
 (see Forge below).
 
-**Key constraint:** `axm_verify.const.ErrorCode` is additive-only. Existing codes are never renamed or removed. Shards from any version must verify under any newer verifier.
+**Key constraint:** `axm_verify.const.ErrorCode` is additive-only. Existing codes are never renamed or removed. Within the frozen v1 major, a shard compiled under any 1.x verifies under every other 1.x. (Pre-v1 shards are v0.x prototypes; git history keeps them, v1 verifiers reject them.)
 
 ---
 
@@ -97,19 +97,16 @@ Step 1 — Extract domain data → candidates.jsonl
 
 Step 2 — Compile via genesis
     compile_generic_shard(CompilerConfig(...))
-    Handles: manifest, Parquet schemas, Merkle tree, signing, self-verification.
+    Handles: manifest, canonical JSONL tables, Merkle tree, axm-hybrid1
+    signing, self-verification — AND the kernel-registry ext/ tables
+    (lineage@1, references@1, temporal@1, locators@1) from candidate keys.
 
-Step 3 — Inject binary files and reseal  (only if spoke has binary content files)
-    shutil.copy2(binary, shard / "content" / "binary.bin")
-    new_root = compute_merkle_root(shard, suite=suite)
-    # Rewrite manifest root, re-sign, re-verify.
-    # See axm-embodied::_inject_latents_and_reseal() for the pattern.
-
-Step 4 — Write domain extension data to ext/  (optional)
-    # On-disk filename is BARE (no @version). The genesis compiler derives the
-    # INV-29 logical name by appending @1 to the stem and records it in the
-    # manifest's `extensions` list (yourdata.parquet -> "yourdata@1").
-    pq.write_table(table, shard / "ext" / "yourdata.parquet")
+Step 3 — Domain extension data rides in candidates  (optional)
+    # v1: only the compiler writes into a shard. Per-candidate keys
+    # (locator, references, valid_from/valid_until/temporal_context) become
+    # sealed ext/<name>@<version>.jsonl tables; manifest.extensions is the
+    # closed list of what the compiler emitted. Anything else your domain
+    # derives is a runtime cache OUTSIDE the shard directory.
 ```
 
 ---
@@ -122,11 +119,7 @@ Source document / sensor stream / API response
   [Spoke: Step 1 — domain extraction]
         ↓ candidates.jsonl
   [axm_build.compiler_generic — Step 2]
-        ↓ shard/ (PASS without binary files)
-  [Spoke: Step 3 — binary inject + reseal]  (if needed)
-        ↓ shard/ (PASS with binary files)
-  [Spoke: Step 4 — ext/ domain data]
-        ↓ ext/streams.parquet etc.  (bare filename; manifest records "streams@1")
+        ↓ shard/ — canonical JSONL tables + compiler-emitted ext/*.jsonl
   [axm_verify.logic — self-verification gate]
         ↓ status: PASS
   [Clarion] → encrypted envelope  (optional)
@@ -140,10 +133,11 @@ Source document / sensor stream / API response
 
 | Item | Location | Frozen since |
 |------|----------|-------------|
-| Shard layout | `axm_verify/const.py` `REQUIRED_*` | v1.0.0 |
-| Merkle construction | `axm_build/merkle.py` | v1.0.0 |
-| Parquet schemas | `axm_verify/const.py` `*_SCHEMA` | v1.0.0 |
-| Identity computation | `axm_verify/identity.py` | v1.0.0 |
-| Error code names | `axm_verify/const.py` `ErrorCode` | v1.0.0 (additive only) |
-| Gold shard bytes | `axm-genesis/shards/gold/` | v1.0.0 |
-| Binary stream format | `axm_embodied_core/protocol.py` | v1.2.0 |
+| Shard layout | `spec/v1/SPECIFICATION.md` §4, `axm_verify/logic.py` | v1.0.0 (RFC 0002) |
+| Merkle construction | `axm_build/merkle.py` | v1.0.0 (RFC 0002) |
+| Canonical JSONL table schemas | `axm_verify/const.py` `*_SCHEMA` | v1.0.0 (RFC 0002) |
+| `axm-hybrid1` suite | `axm_build/sign.py`, spec §7 | v1.0.0 (RFC 0002) |
+| Identity computation | `axm_verify/identity.py` | v1.0.0 (RFC 0002) |
+| Error code names | `axm_verify/const.py` `ErrorCode` | v1.0.0 (RFC 0002) |
+| Gold shard bytes | `axm-genesis/shards/gold/fm21-11-hemorrhage-v2` | v1.0.0 (RFC 0002) |
+| Binary stream format | `axm_embodied_core/protocol.py` (profile `embodied@1`) | profile-versioned |

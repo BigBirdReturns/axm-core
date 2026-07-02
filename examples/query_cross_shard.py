@@ -3,7 +3,7 @@
 query_cross_shard.py — Phase 2: Multi-shard composition queries via Spectra.
 
 Mounts two shards into Spectra's DuckDB instance and executes JOIN queries
-across them using ext/references@1.parquet as the bridge.
+across them using ext/references@1.jsonl as the bridge.
 
     Shard A (embodied): robot run — wheel_slip, emergency_stop claims
     Shard B (gold):     FM 21-11 hemorrhage doctrine — the normative authority
@@ -18,12 +18,12 @@ Usage
     # Example:
     python query_cross_shard.py \\
         axm-embodied/shard_out/ \\
-        axm-genesis/shards/gold/fm21-11-hemorrhage-v1/
+        axm-genesis/shards/gold/fm21-11-hemorrhage-v2/
 
 Architecture
 ------------
-Spectra already auto-registers any *.parquet in ext/ as a DuckDB view when
-a shard is mounted. After mounting both shards, the following views exist:
+Spectra already auto-loads any *.jsonl in ext/ as a DuckDB table when
+a shard is mounted (opaque/binary ext formats are skipped with a log line). After mounting both shards, the following views exist:
 
     claims__{pfx_a}__{shard_a}          — embodied claims
     ext_references__{pfx_a}__{shard_a}  — cross-shard reference edges

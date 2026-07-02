@@ -47,6 +47,7 @@ from .core import (
     DEFAULT_COLORS,
     
     # Edge extraction (for manual topology computation)
+    extract_edges_from_jsonl,
     extract_edges_from_parquet,
     extract_edges_from_claims,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "Edge",
     
     # Utilities
+    "extract_edges_from_jsonl",
     "extract_edges_from_parquet",
     "extract_edges_from_claims",
 ]

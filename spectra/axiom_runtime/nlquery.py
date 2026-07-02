@@ -35,11 +35,14 @@ Real Genesis claims schema (frozen):
     claims(claim_id, subject, predicate, object, object_type, tier)
     entities(entity_id, namespace, label, entity_type)
   Note: claims has NO shard_id column — the union views are plain
-  ``SELECT *`` across per-shard parquet, which carries no shard provenance
-  column. Queries therefore do not project/join shard_id off claims.
-  Optional (from extensions):
+  ``SELECT *`` across per-shard JSONL-backed tables, which carry no shard
+  provenance column. Queries therefore do not project/join shard_id off
+  claims.
+  Optional (from extensions — Genesis v1 kernel registry):
     temporal(claim_id, valid_from, valid_until, temporal_context)
-    lineage(shard_id, supersedes_shard_id, action, timestamp, note)
+    lineage(supersedes_shard_id, action, timestamp, note)
+      — no self-id column: a shard's own id is derived from its manifest
+        and never appears in its own files (spec section 9)
     refs(src_claim_id, relation_type, dst_shard_id, dst_object_type, dst_object_id, confidence, note)
 """
 from __future__ import annotations
@@ -220,8 +223,10 @@ def _handle_staleness(q: str, limit: int) -> Optional[Query]:
 def _handle_lineage(q: str, limit: int) -> Optional[Query]:
     """Detect: 'supersed', 'what replaced', 'version', 'lineage'
 
-    Reads the ext lineage view, which DOES have shard_id / supersedes_shard_id
-    columns (distinct from claims). No user values are interpolated.
+    Reads the ext lineage view (lineage@1). Rows name only PREDECESSOR
+    shards (supersedes_shard_id, sh1_ form) — there is no self-id column,
+    because a shard's own id is derived from its manifest and cannot appear
+    in its own files. No user values are interpolated.
     """
     if not any(k in q for k in ["supersed", "replaced", "lineage", "version chain"]):
         return None
@@ -229,7 +234,6 @@ def _handle_lineage(q: str, limit: int) -> Optional[Query]:
     return (
         """
         SELECT
-            l.shard_id AS current_shard,
             l.supersedes_shard_id AS replaced_shard,
             l.action,
             l.timestamp,
