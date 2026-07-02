@@ -31,8 +31,12 @@ from pathlib import Path
 
 # --- Imports from stack (expect PYTHONPATH or installed packages) ---
 from axm_build.compiler_generic import CompilerConfig, compile_generic_shard
+from axm_build.sign import mldsa44_keygen
 from axm_verify.logic import verify_shard
-from clarion.core import encrypt_shard, decrypt_envelope
+
+# Clarion is optional: it is a separate install (`pip install -e ./clarion`)
+# and its encryption requires the graphkdf package, which is not published
+# on PyPI. The --encrypt leg is skipped cleanly when either is missing.
 
 # Optional: Spectra mount
 try:
@@ -96,7 +100,10 @@ def main() -> int:
                 p.unlink()
     shard_dir.mkdir(parents=True, exist_ok=True)
 
-    private_key = secrets.token_bytes(32)
+    # Throwaway ML-DSA-44 keypair for the default axm-blake3-mldsa44 suite,
+    # passed in the canonical sk||pk (3840-byte) format.
+    kp = mldsa44_keygen()
+    private_key = kp.secret_key + kp.public_key
 
     compiler_cfg = CompilerConfig(
         source_path=source_txt,
@@ -124,39 +131,71 @@ def main() -> int:
     mount_target = shard_dir
 
     if args.encrypt:
+        try:
+            from clarion.core import encrypt_shard, decrypt_envelope
+        except ImportError as exc:
+            print(
+                "Clarion leg SKIPPED: clarion (or its graphkdf dependency) is not "
+                f"installed ({exc}).\n"
+                "  Install clarion with `pip install -e ./clarion`; note its "
+                "encryption additionally requires the unpublished graphkdf package.\n"
+                "  Continuing with the unencrypted shard.",
+            )
+            args.encrypt = False
+
+    if args.encrypt:
         user_secret = secrets.token_bytes(32)
         envelope_dir = workdir / "envelope"
         if envelope_dir.exists():
             for p in envelope_dir.rglob("*"):
                 if p.is_file():
                     p.unlink()
-        envelope_path, _env = encrypt_shard(
-            shard_dir,
-            user_secret,
-            epoch=datetime.now(timezone.utc).strftime("%Y-%m"),
-            out_dir=envelope_dir,
-            colors=["Green", "Yellow", "Red", "Black"],
-            file_color_map=None,
-            topology_hash_version="v3",
-        )
-        print("Clarion envelope created:", envelope_path)
-        print("Secret (base64):", base64.b64encode(user_secret).decode("ascii"))
+        try:
+            # clarion.core.encrypt_shard raises ImportError at call time when
+            # graphkdf is absent, so guard the call as well as the import.
+            envelope_path, _env = encrypt_shard(
+                shard_dir,
+                user_secret,
+                epoch=datetime.now(timezone.utc).strftime("%Y-%m"),
+                out_dir=envelope_dir,
+                colors=["Green", "Yellow", "Red", "Black"],
+                file_color_map=None,
+                topology_hash_version="v3",
+            )
+        except ImportError as exc:
+            print(
+                "Clarion leg SKIPPED: encryption unavailable "
+                f"(graphkdf not installed: {exc}). Continuing with the "
+                "unencrypted shard.",
+            )
+        else:
+            print("Clarion envelope created:", envelope_path)
+            print("Secret (base64):", base64.b64encode(user_secret).decode("ascii"))
 
-        decrypted_dir, _colors = decrypt_envelope(envelope_path, user_secret, out_dir=workdir / "decrypted")
-        mount_target = decrypted_dir
+            decrypted_dir, _colors = decrypt_envelope(envelope_path, user_secret, out_dir=workdir / "decrypted")
+            mount_target = decrypted_dir
 
-        # Verify decrypted shard too
-        result2 = verify_shard(mount_target, trusted_key)
-        if result2["status"] != "PASS":
-            print(f"Genesis verify (decrypted) failed: {result2['errors']}", file=sys.stderr)
-            return 4
-        print("Genesis verify (decrypted): PASS")
+            # Verify decrypted shard too
+            result2 = verify_shard(mount_target, trusted_key)
+            if result2["status"] != "PASS":
+                print(f"Genesis verify (decrypted) failed: {result2['errors']}", file=sys.stderr)
+                return 4
+            print("Genesis verify (decrypted): PASS")
 
     if SpectraEngine is not None:
-        eng = SpectraEngine(db_path=workdir / "spectra.duckdb", dev_mode=True)
+        # SpectraEngine requires SPECTRA_SYSTEM_KEY in production; for this
+        # integration test we opt into the documented dev override instead.
+        os.environ.setdefault("SPECTRA_DEV_MODE", "1")
+        eng = SpectraEngine(
+            db_path=str(workdir / "spectra.db"),
+            audit_path=str(workdir / "spectra_audit.jsonl"),
+            cache_path=str(workdir / "spectra_cache.jsonl"),
+        )
         eng.boot()
-        shard_id = eng.mount_shard(mount_target)
-        rows = eng.query("SELECT * FROM claims LIMIT 50")
+        spec = eng.mount_shard(str(mount_target))
+        print("Spectra mounted shard:", spec.shard_id)
+        result_json = eng.query_json("SELECT * FROM claims LIMIT 50")
+        rows = result_json["rows"]
         print("Spectra query returned rows:", len(rows))
         print(rows[:5])
     else:

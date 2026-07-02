@@ -25,9 +25,10 @@ When the user runs any `axm` command, `axm-core` calls `importlib.metadata.entry
 | Module | What it provides | Import path |
 |---|---|---|
 | Spectra engine | Mount shards, run SQL/NL queries | `from axiom_runtime.engine import SpectraEngine` |
-| NL→SQL | Natural language to query pattern | `from axiom_runtime.nlquery import natural_language_to_sql` |
-| Forge extractors | Parse documents into raw claim candidates | `from axm_forge.ingestion.extractors import ChatExtractor, UniversalExtractor` |
-| Forge emission | Write claim candidates to shard via Genesis | `from axm_forge.emission.genesis_emission import emit_shard` |
+| NL→SQL | Natural language to parameterized SQL: `(sql, params)` for `engine.query_json(sql, params)` | `from axiom_runtime.nlquery import natural_language_to_query` |
+| NL→SQL (string form) | SQL text only (still contains `?` placeholders — execute with the params from `natural_language_to_query`) | `from axiom_runtime.nlquery import natural_language_to_sql` |
+| Forge extractors | Parse documents into topology-preserving blocks / tier-0 candidates | `from axm_forge.ingestion.extractors import extract, extract_chat_json, DocumentBlock, ExtractedDocument` |
+| Forge emission | Write claim candidates to a shard via Genesis | `from axm_forge.emission.genesis_emission import emit_genesis_shard, EmissionConfig` |
 
 These are the stable surfaces.  Anything not listed here is internal to Core and subject to change without notice.
 
@@ -37,11 +38,12 @@ These are the stable surfaces.  Anything not listed here is internal to Core and
 
 | Concern | Canonical location | Why |
 |---|---|---|
-| Shard compilation | `axm-genesis` — `axm_build` | The protocol guarantee is that every shard was compiled by the same kernel.  Spoke-level compilation bypasses the signature contract. |
-| Shard verification | `axm-genesis` — `axm_verify` | Same reason.  Verification must be kernel-level. |
-| Merkle tree construction | `axm-genesis` — `axm_merkle` | The root hash is the shard's identity.  Spoke-level Merkle breaks cross-shard reference integrity. |
+| Shard compilation | `axm-genesis` — `axm_build.compiler_generic` (`CompilerConfig`, `compile_generic_shard`) | The protocol guarantee is that every shard was compiled by the same kernel.  Spoke-level compilation bypasses the signature contract. |
+| Shard verification | `axm-genesis` — `axm_verify.logic.verify_shard` / CLI `axm-verify shard PATH --trusted-key KEY` | Same reason.  Verification must be kernel-level. |
+| Merkle tree construction | `axm-genesis` — `axm_build.merkle.compute_merkle_root` | The root hash is the shard's identity.  Spoke-level Merkle breaks cross-shard reference integrity. |
 | DuckDB schema for shard tables | `axiom_runtime.engine` | Spoke-level schema changes break union views across spokes. |
-| Signing keys and crypto suite selection | `axm-genesis` — `axm_keys` | One key per publisher, one suite per ecosystem version. |
+| Signing keys and crypto suite selection | `axm-genesis` — `axm_build.sign` (`mldsa44_keygen`, `mldsa44_sign`, `SUITE_ED25519`, `SUITE_MLDSA44`) | One key per publisher, one suite per ecosystem version. |
+| Entity/claim identity | `axm-genesis` — `axm_verify.identity` (`recompute_entity_id`, `recompute_claim_id`) | Sealed IDs must match what the compiler recomputes. |
 
 ---
 
@@ -102,4 +104,13 @@ After `pip install -e .`, running `axm spokes` lists it and `axm myspoke hello` 
 
 Spokes declare a minimum `axm-genesis` version.  They declare `axm-core` if they use Spectra or Forge.  They do not pin exact versions of either — that is the user's environment's job.
 
-The Genesis protocol version is the long-term stability guarantee.  Spokes that compile shards at `axm-genesis>=1.2.0` will be verifiable by any future `axm-genesis>=1.2.0` installation.
+The Genesis protocol version is the long-term stability guarantee: shards whose
+manifests conform to the frozen spec (v1.0/v1.1 layout with
+`metadata.created_at`) verify under current and future verifiers.
+
+**Known exception:** the `v1.2.0` git tag's compiler emitted `created_at` at
+the manifest **top level**; verifiers newer than that tag enforce the spec's
+`metadata.created_at` and reject those shards with `E_MANIFEST_SCHEMA`. Shards
+built with the v1.2.0 snapshot must be rebuilt with the fixed kernel (the
+commit pinned in this repo's `pyproject.toml`, or any later release) to regain
+forward verifiability.

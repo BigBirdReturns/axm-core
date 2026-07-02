@@ -12,6 +12,14 @@ The five core tables (entities, claims, provenance, spans + source.txt), the Mer
 Ed25519 signatures, and manifest schema do not change. Old verifiers verify new shards.
 New verifiers verify old shards.
 
+> *Known violation (v1.2.0 tag):* the `v1.2.0` compiler emitted `created_at` at the
+> manifest top level instead of the spec's `metadata.created_at`. Verifiers newer
+> than that tag enforce the manifest schema strictly and reject v1.2.0-built shards
+> with `E_MANIFEST_SCHEMA`. Fixed in the genesis commit pinned by this repo's
+> `pyproject.toml` (branch `claude/durability-report-test-fixes-4hbf2v`); shards
+> built with the v1.2.0 snapshot must be rebuilt. Spec-conformant shards (e.g. the
+> gold shard) are unaffected and verify under every verifier version.
+
 **INV-2: Merkle root covers all files.**
 Every file in the shard (including `ext/`) is in the Merkle tree. Signature covers manifest.
 Tamper with any byte → shard rejected.
@@ -96,7 +104,11 @@ Same key + same message = same signature. No nonce. No randomness. Reproducible 
 
 **INV-23: Key convention is sk||pk (3840 bytes) for ML-DSA-44.**
 Secret key alone is 2528 bytes. Combined format (sk||pk = 3840 bytes) is canonical for
-key storage. The compiler accepts either format.
+key storage. The compiler accepts either format — with one condition on the sk-only
+form: since the public key cannot be derived from the secret key alone, the caller
+must pre-place `sig/publisher.pub` in the output directory before calling
+`compile_generic_shard` (the compiler preserves that file across its output-directory
+wipe and signs against it). With sk||pk, no pre-placement is needed.
 
 ---
 

@@ -28,8 +28,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from axm_forge.models.claims import Claim
 
 # Clarion v2 (GraphKDF) encryption is optional and imported lazily inside
-# emit_shard() only when config.encrypt is set, so this module (and the
-# forge import chain) works without clarion/graphkdf installed.
+# emit_genesis_shard() only when config.encrypt is set, so this module (and
+# the forge import chain) works without clarion/graphkdf installed.
 
 
 # ============================================================================

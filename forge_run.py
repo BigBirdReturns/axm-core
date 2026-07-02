@@ -502,13 +502,22 @@ TIER1_EXTRACTORS = [Tier1CrossRef]
 # ---------------------------------------------------------------------------
 
 def plan_job(input_dir: Path, output_dir: Path, llm_model: str = "llama3:8b") -> JobPlan:
-    """Scan input directory, estimate work, return plan."""
+    """Scan the input (a directory of documents or a single file), estimate work, return plan."""
 
-    # Find all processable files
-    source_files = []
-    for ext in ("*.md", "*.txt", "*.text"):
-        source_files.extend(input_dir.glob(ext))
-    source_files = sorted(source_files)
+    # Find all processable files. --input may be a directory of documents
+    # or a single .md/.txt file (README "Single article" usage).
+    if input_dir.is_file():
+        if input_dir.suffix.lower() not in (".md", ".txt", ".text"):
+            raise FileNotFoundError(
+                f"Unsupported input file type {input_dir.suffix!r}: {input_dir} "
+                "(expected .md, .txt, or .text)"
+            )
+        source_files = [input_dir]
+    else:
+        source_files = []
+        for ext in ("*.md", "*.txt", "*.text"):
+            source_files.extend(input_dir.glob(ext))
+        source_files = sorted(source_files)
 
     if not source_files:
         raise FileNotFoundError(f"No .md/.txt files found in {input_dir}")
