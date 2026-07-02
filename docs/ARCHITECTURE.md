@@ -20,7 +20,7 @@ Install chain:
 ```bash
 pip install axm-embodied
 # pulls axm-core@v1.1.0 automatically
-# which pulls axm-genesis@v1.2.0 automatically
+# which pulls the pinned axm-genesis commit automatically
 # axm_build.*, axm_verify.* resolve from genesis
 ```
 
@@ -59,7 +59,7 @@ Orchestration tooling. Declares `axm-genesis` as a pinned dependency and re-expo
 ```bash
 pip install -e .          # axm-core root + axm-genesis
 pip install -e ./forge    # axm-forge CLI
-pip install -e ./clarion  # topology-bound encryption
+pip install -e ./clarion  # topology-bound encryption (encrypt/decrypt needs graphkdf, not on PyPI)
 ```
 
 ---

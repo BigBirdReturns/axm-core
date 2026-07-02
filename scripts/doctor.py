@@ -6,13 +6,25 @@ Run:
 
 Optional:
   python scripts/doctor.py --python /path/to/python
-  python scripts/doctor.py --stack-root /path/to/axm-stack-v1
+  python scripts/doctor.py --stack-root /path/to/checkouts
+
+Expected layout (sibling checkouts — axm-core does NOT vendor genesis):
+  <stack-root>/
+    axm-genesis/   git checkout of the kernel (src/axm_build, src/axm_verify,
+                   shards/gold/fm21-11-hemorrhage-v1)
+    axm-core/      this repo (forge/, spectra/, clarion/)
+
+The stack root is auto-detected by walking up from the current directory
+(e.g. run from inside axm-core, the parent directory holding both checkouts
+is found). A legacy vendored layout (<root>/genesis/src/axm_build alongside
+<root>/forge/axm_forge) is also recognized. Pass --stack-root explicitly if
+your checkouts live elsewhere.
 
 Exit codes:
   0 pass
   2 import failure
   3 gold shard verification failure
-  4 unexpected error
+  4 unexpected error (including: stack root not found)
 """
 
 from __future__ import annotations
@@ -36,17 +48,36 @@ REQUIRED_MODULES = [
 ]
 
 
-def detect_stack_root(start: Path) -> Path | None:
-    def is_root(p: Path) -> bool:
-        return (
-            (p / "genesis" / "src" / "axm_build").exists()
-            and (p / "genesis" / "src" / "axm_verify").exists()
-            and (p / "forge" / "axm_forge").exists()
-        )
+def _layout(root: Path) -> tuple[Path, Path] | None:
+    """Return (genesis_dir, core_dir) for a recognized layout at root, else None.
 
+    Sibling layout (canonical): <root>/axm-genesis + <root>/axm-core
+    Vendored layout (legacy):   <root>/genesis + <root> as the core tree
+    """
+    sib_genesis = root / "axm-genesis"
+    sib_core = root / "axm-core"
+    if (
+        (sib_genesis / "src" / "axm_build").exists()
+        and (sib_genesis / "src" / "axm_verify").exists()
+        and (sib_core / "forge" / "axm_forge").exists()
+    ):
+        return sib_genesis, sib_core
+
+    vend_genesis = root / "genesis"
+    if (
+        (vend_genesis / "src" / "axm_build").exists()
+        and (vend_genesis / "src" / "axm_verify").exists()
+        and (root / "forge" / "axm_forge").exists()
+    ):
+        return vend_genesis, root
+
+    return None
+
+
+def detect_stack_root(start: Path) -> Path | None:
     p = start.resolve()
     for _ in range(9):
-        if is_root(p):
+        if _layout(p) is not None:
             return p
         if p.parent == p:
             return None
@@ -55,12 +86,14 @@ def detect_stack_root(start: Path) -> Path | None:
 
 
 def build_pythonpath(root: Path) -> str:
+    genesis_dir, core_dir = _layout(root) or (root / "axm-genesis", root / "axm-core")
     sep = ";" if os.name == "nt" else ":"
     parts = [
-        str(root / "genesis" / "src"),
-        str(root / "forge"),
-        str(root / "clarion"),
-        str(root / "spectra"),
+        str(genesis_dir / "src"),
+        str(core_dir / "forge"),
+        str(core_dir / "clarion"),
+        str(core_dir / "spectra"),
+        str(core_dir / "src"),
     ]
     return sep.join(parts)
 
@@ -76,8 +109,13 @@ def import_checks() -> tuple[bool, list[str]]:
 
 
 def run_gold_verify(python_exe: str, env: dict[str, str], root: Path) -> tuple[int, str, str]:
-    gold_shard = root / "genesis" / "shards" / "gold" / "fm21-11-hemorrhage-v1"
-    trusted_key = gold_shard / "sig" / "publisher.pub"
+    layout = _layout(root)
+    genesis_dir = layout[0] if layout else root / "axm-genesis"
+    gold_shard = genesis_dir / "shards" / "gold" / "fm21-11-hemorrhage-v1"
+    trusted_key = genesis_dir / "keys" / "canonical_test_publisher.pub"
+    if not trusted_key.exists():
+        # Fall back to the key shipped inside the shard itself.
+        trusted_key = gold_shard / "sig" / "publisher.pub"
     if not gold_shard.exists():
         return (3, "", f"Gold shard not found: {gold_shard}")
     if not trusted_key.exists():

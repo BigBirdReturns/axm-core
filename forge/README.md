@@ -21,7 +21,7 @@ Document → Forge → candidates.jsonl + source.txt
 
 ```bash
 pip install -e ./forge
-pip install -e ./genesis  # Required for axm-build
+pip install -e ../axm-genesis  # kernel checkout (sibling repo) — required for axm-build
 ```
 
 ## Usage

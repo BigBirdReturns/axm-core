@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "axm-forge"
 version = "2.0.0"
@@ -20,6 +24,11 @@ full = [
 
 [project.scripts]
 axm-forge = "axm_forge.cli.main:main"
+
+# forge/ also contains non-package directories (inputs/, scripts/), so package
+# discovery must be pinned to axm_forge or setuptools rejects the flat layout.
+[tool.setuptools.packages.find]
+include = ["axm_forge*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

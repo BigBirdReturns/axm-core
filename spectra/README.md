@@ -17,7 +17,7 @@ Shard/Envelope → Decrypt (if Clarion) → axm-verify → Mount → Query
 
 ```bash
 pip install -e ./spectra
-pip install -e ./genesis  # Required for axm-verify
+pip install -e ../axm-genesis  # kernel checkout (sibling repo) — required for axm-verify
 ```
 
 ## Usage

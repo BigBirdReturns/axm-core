@@ -11,7 +11,13 @@ license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
   # ── Protocol kernel ────────────────────────────────────────────────────────
-  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@v1.2.0",
+  # Pinned to the manifest-schema fix commit on branch
+  # claude/durability-report-test-fixes-4hbf2v (post-v1.2.0). The v1.2.0 tag's
+  # compiler emits `created_at` at the manifest top level, which the strict
+  # verifier on this commit rejects (spec 5.2 requires metadata.created_at) —
+  # so shards built by the v1.2.0 snapshot fail verification under newer
+  # verifiers. Re-pin to the next tagged release once it is cut.
+  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@ed556f76dae599ded4228d5567b05c04aea5e007",
 
   # ── Core deps ─────────────────────────────────────────────────────────────
   "blake3>=0.4.0",
