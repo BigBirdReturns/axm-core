@@ -11,10 +11,11 @@ license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 dependencies = [
   # ── Protocol kernel ────────────────────────────────────────────────────────
-  # Pinned to the v1 merge commit (RFC 0002 — the v1.0 reset: one axm-hybrid1
-  # suite, canonical JSONL core tables, derived shard identity).
-  # Re-pin to the PyPI release at v1.0.0.
-  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@808e7b7c60c35c3f84bf2ab2b51ca9e679f38824",
+  # Pinned to the v1 kernel commit (RFC 0002 — the v1.0 reset: one axm-hybrid1
+  # suite, canonical JSONL core tables, derived shard identity) that also
+  # carries the boundary drift-check the CI sources — the same commit the
+  # spokes pin. Re-pin to the PyPI release range `>=1.0.0,<2` at v1.0.0.
+  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@fffe7cf0f1c78c8c4bea5f303099db80f7c53ba3",
 
   # ── Core deps ─────────────────────────────────────────────────────────────
   "blake3>=0.4.0",

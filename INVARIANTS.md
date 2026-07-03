@@ -149,7 +149,7 @@ are skipped with a log line, never a mount failure — `ext/` is opaque.
 `sig/manifest.sig` = sig_ed25519(64) ‖ sig_mldsa44(2420) = 2484 bytes.
 A signature is valid iff BOTH components verify. There is no suite
 negotiation and no detection by key size. The v0.x `ed25519` and
-`axm-blake3-mldsa44` suites are gone.
+`axm-blake3-mldsa44` suites are gone. <!-- drift-ok: accurate v1 statement that the pre-reset suites are retired -->
 *Proven by:* `tests/test_v1_mount.py::test_spoke_api_import_surface`
 (asserts the frozen sizes and suite string against the installed kernel).
 

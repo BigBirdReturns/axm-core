@@ -229,7 +229,7 @@ def test_mount_skips_opaque_ext_formats(tmp_path, monkeypatch, capsys):
 def test_spoke_api_import_surface():
     """Every genesis-facing name SPOKE_API.md lists must import from v1."""
     from axm_build.compiler_generic import CompilerConfig, compile_generic_shard  # noqa: F401
-    from axm_build.merkle import compute_merkle_root  # noqa: F401
+    from axm_build.merkle import compute_merkle_root  # noqa: F401  # drift-ok: surface test — imports the kernel's own compute_merkle_root to assert SPOKE_API.md's surface exists, not a reimplementation
     from axm_build.sign import (  # noqa: F401
         HYBRID1_PK_LEN,
         HYBRID1_SIG_LEN,

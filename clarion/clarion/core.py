@@ -98,7 +98,7 @@ def extract_edges_from_jsonl(claims_jsonl: Path) -> List[Edge]:
 
 
 def extract_edges_from_parquet(claims_parquet: Path) -> List[Edge]:
-    """Extract edges from a legacy (v0.x prototype) claims.parquet file."""
+    """Extract edges from a legacy (v0.x prototype) claims.parquet file."""  # drift-ok: legacy v0.x parquet fallback reader; the v1 path is claims.jsonl
     Edge = _require_graphkdf().Edge
     try:
         import duckdb
@@ -370,7 +370,7 @@ def encrypt_shard(
 
     # Extract edges from claims (v1 canonical JSONL; legacy parquet fallback)
     claims_jsonl = shard_path / "graph" / "claims.jsonl"
-    claims_parquet = shard_path / "graph" / "claims.parquet"
+    claims_parquet = shard_path / "graph" / "claims.parquet"  # drift-ok: legacy v0.x parquet fallback; claims.jsonl is preferred above
     if claims_jsonl.exists():
         edges = extract_edges_from_jsonl(claims_jsonl)
     elif claims_parquet.exists():
@@ -699,7 +699,7 @@ def _decrypt_v2(
 
         # Verify topology if requested
         claims_jsonl = shard_dir / "graph" / "claims.jsonl"
-        claims_parquet = shard_dir / "graph" / "claims.parquet"
+        claims_parquet = shard_dir / "graph" / "claims.parquet"  # drift-ok: legacy v0.x parquet fallback; claims.jsonl is preferred above
         if verify_topology and (claims_jsonl.exists() or claims_parquet.exists()):
             if claims_jsonl.exists():
                 edges = extract_edges_from_jsonl(claims_jsonl)
