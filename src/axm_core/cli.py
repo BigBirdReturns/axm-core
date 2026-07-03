@@ -114,15 +114,72 @@ def cmd_status() -> None:
 
 @click.command("list")
 @click.option("--decision", is_flag=True, default=False, help="Only decision shards.")
-@click.option("--verified/--no-verified", default=None, help="Filter by verification status.")
-def cmd_list(decision: bool, verified: Optional[bool]) -> None:
-    """List all shards in the local store."""
+@click.option(
+    "--verified/--no-verified",
+    default=None,
+    help="Filter by verification status (requires --trusted-key).",
+)
+@click.option(
+    "--trusted-key",
+    "-k",
+    "trusted_key",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Publisher public key to verify each shard against. Without it, a "
+         "shard that carries a signature is shown as 'signed', not 'verified'.",
+)
+def cmd_list(decision: bool, verified: Optional[bool], trusted_key: Optional[Path]) -> None:
+    """List all shards in the local store.
+
+    A shard is shown as ``verified`` only when it PASSES the genesis verifier
+    against an out-of-band ``--trusted-key``. Without a trusted key a shard that
+    merely carries ``sig/manifest.sig`` is labelled ``signed`` (signature
+    present) — never verified: the existence of a signature file says nothing
+    about whether that signature is valid or anchored to a key you trust
+    (perimeter-sweep finding F2).
+    """
+    import json
+
     shard_root = Path.home() / ".axm" / "shards"
     if not shard_root.exists():
         click.echo("No shard store found.  Run `axm-chat import` to create one.")
         return
 
-    import json
+    verify_shard = None
+    if trusted_key is not None:
+        trusted_key = trusted_key.expanduser()
+        if not trusted_key.is_file():
+            click.echo(f"Error: trusted key not found: {trusted_key}", err=True)
+            sys.exit(1)
+        try:
+            from axm_verify.cli import verify_shard  # from axm-genesis
+        except ImportError:
+            click.echo(
+                "axm-genesis is not installed, so shards cannot be verified.  "
+                "Run: pip install -e ./axm-genesis",
+                err=True,
+            )
+            sys.exit(1)
+
+    if verified is not None and verify_shard is None:
+        click.echo(
+            "Error: --verified/--no-verified needs a trust anchor; pass "
+            "--trusted-key/-k <publisher.pub>.  A present signature file is not "
+            "verification.",
+            err=True,
+        )
+        sys.exit(1)
+
+    def _state(shard_dir: Path) -> str:
+        if verify_shard is not None:
+            try:
+                result = verify_shard(str(shard_dir), trusted_key)
+            except Exception:  # noqa: BLE001 - unreadable/broken shard
+                return "failed"
+            return "verified" if result.get("status") == "PASS" else "failed"
+        return "signed" if (shard_dir / "sig" / "manifest.sig").exists() else "unsigned"
+
+    _MARK = {"verified": "✓", "failed": "✗", "signed": "•", "unsigned": "•"}
 
     shards = sorted(shard_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
     shown = 0
@@ -137,19 +194,19 @@ def cmd_list(decision: bool, verified: Optional[bool]) -> None:
         except Exception:
             continue
 
-        is_decision = m.get("shard_type") == "decision"
+        meta = m.get("metadata", {})
+        namespace = str(meta.get("namespace", ""))
+        is_decision = namespace.startswith(("decisions/", "episodes/"))
         if decision and not is_decision:
             continue
 
-        sig_path = shard_dir / "sig" / "manifest.sig"
-        is_verified = sig_path.exists()
-        if verified is not None and is_verified != verified:
+        state = _state(shard_dir)
+        if verified is not None and (state == "verified") != verified:
             continue
 
-        flag = "✓" if is_verified else "✗"
+        title = str(meta.get("title", shard_dir.name))[:60]
         dtype = " [decision]" if is_decision else ""
-        title = m.get("title", shard_dir.name)[:60]
-        click.echo(f"  {flag}  {shard_dir.name:<36}  {title}{dtype}")
+        click.echo(f"  {_MARK[state]} {state:<8}  {shard_dir.name:<36}  {title}{dtype}")
         shown += 1
 
     if shown == 0:
