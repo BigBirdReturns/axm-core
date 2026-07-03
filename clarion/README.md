@@ -42,7 +42,7 @@ Genesis Shard ──▶ Extract Edges ──▶ GraphKDF ──▶ Partition Key
   claims.jsonl                topology_hash (in envelope)
 ```
 
-1. Clarion extracts edges from the shard's `graph/claims.jsonl` (canonical JSONL; legacy v0.x `claims.parquet` still readable)
+1. Clarion extracts edges from the shard's `graph/claims.jsonl` (canonical JSONL; legacy v0.x `claims.parquet` still readable) <!-- drift-ok: names the legacy v0.x table clarion still reads for backward compat; the v1 path is claims.jsonl -->
 2. GraphKDF derives keys bound to the topology hash
 3. Files are encrypted with AES-256-GCM
 4. Envelope stores encrypted blobs + metadata

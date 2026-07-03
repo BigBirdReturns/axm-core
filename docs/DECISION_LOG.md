@@ -47,7 +47,7 @@ Blob hash:
 Choice: **No red/green file layout in Genesis shards**
 
 Rationale:
-- Genesis contract requires single graph/claims.parquet and other fixed parquet files.
+- Genesis contract requires single graph/claims.parquet and other fixed parquet files. <!-- drift-ok: historical decision-log entry recorded under the pre-reset Parquet contract; v1 core tables are canonical JSONL -->
 - Confidentiality and partitioning belong in Clarion encryption and envelope metadata, not in Genesis file naming.
 
 ## Decision 5: Source of truth ownership

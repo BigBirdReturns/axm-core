@@ -171,7 +171,7 @@ See `INVARIANTS.md` for absolute constraints on all changes.
 Hashing is BLAKE3 (Merkle tree, shard identity) with RFC 6962 odd-leaf
 promotion and domain separation. Keys: 3904-byte secret blob, 1344-byte
 public key, 2484-byte signature (`axm-build keygen` generates pairs). The
-old `ed25519` and `axm-blake3-mldsa44` suites are gone: shards built with
+old `ed25519` and `axm-blake3-mldsa44` suites are gone: shards built with <!-- drift-ok: accurate v1 statement that the pre-reset suites are retired -->
 them are v0.x prototypes and cannot be verified by v1.
 
 > **Roadmap note — done.** Genesis [RFC 0002](https://github.com/BigBirdReturns/axm-genesis/blob/main/rfcs/0002-v1-reset.md)

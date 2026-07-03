@@ -7,7 +7,7 @@ This is the trust layer for every extension join.
 
 | ID | Derivation | Depends On | Stable? |
 |----|-----------|------------|---------|
-| `shard_id` | `"shard_blake3_" + merkle_root` | All file contents | Yes — content-addressed |
+| `shard_id` | `"sh1_" + BLAKE3(manifest.json bytes)` | Manifest bytes (which bind all file contents via `integrity.merkle_root`) | Yes — derived, never stored |
 | `entity_id` | `recompute_entity_id(namespace, label)` | Namespace + label string | Yes — deterministic |
 | `claim_id` | `recompute_claim_id(subj_id, pred, obj, obj_type)` | Claim content | Yes — deterministic |
 | `source_hash` | `SHA-256(content_bytes)` | Source text after normalization | Yes — content-addressed |
