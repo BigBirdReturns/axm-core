@@ -1,0 +1,4 @@
+order_id,customer_id,amount
+O-1001,C-1,42.50
+O-1002,C-2,17.00
+O-1003,C-1,88.25

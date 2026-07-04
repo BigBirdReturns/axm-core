@@ -1,0 +1,41 @@
+{
+  "source_system": "palantir-foundry",
+  "exported_at": "2026-07-04T00:00:00Z",
+  "datasets": [
+    {
+      "dataset_rid": "ri.foundry.main.dataset.orders",
+      "branch": "master",
+      "version": "0f0f0f0f-0000-4000-8000-000000000001",
+      "objects": [
+        {
+          "object_path": "data/orders.csv",
+          "file_format": "csv",
+          "size_bytes": 79,
+          "checksum": "7fdff1bdcc231787991339f939beebed8f56140217e1e2f9afe00b610386fa2c",
+          "schema": {
+            "columns": [
+              {
+                "name": "order_id",
+                "type": "string"
+              },
+              {
+                "name": "customer_id",
+                "type": "string"
+              },
+              {
+                "name": "amount",
+                "type": "double"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "dataset_rid": "ri.foundry.main.dataset.raw_orders",
+      "branch": "master",
+      "version": "0f0f0f0f-0000-4000-8000-000000000002",
+      "objects": []
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "object_types": [
+    {
+      "object_type_id": "Order",
+      "properties": [
+        {
+          "id": "order_id",
+          "type": "string"
+        },
+        {
+          "id": "amount",
+          "type": "double"
+        }
+      ],
+      "links": [
+        {
+          "id": "placed_by",
+          "target_object_type_id": "Customer"
+        }
+      ],
+      "backing_dataset_rids": [
+        "ri.foundry.main.dataset.orders"
+      ],
+      "action_refs": [
+        "ri.foundry.main.action.cancel_order"
+      ],
+      "security_markings": [
+        "PII"
+      ]
+    }
+  ]
+}
