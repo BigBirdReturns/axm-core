@@ -1,0 +1,11 @@
+{
+  "nextPageToken": null,
+  "data": [
+    {
+      "apiName": "departingFlights",
+      "objectTypeApiName": "Flight",
+      "cardinality": "MANY",
+      "foreignKeyPropertyApiName": null
+    }
+  ]
+}

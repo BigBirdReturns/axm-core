@@ -1,0 +1,11 @@
+{
+  "nextPageToken": null,
+  "data": [
+    {
+      "apiName": "operatedByAircraft",
+      "objectTypeApiName": "Aircraft",
+      "cardinality": "ONE",
+      "foreignKeyPropertyApiName": "aircraftTail"
+    }
+  ]
+}

@@ -40,6 +40,23 @@ python -m pytest tests/test_foundry_exit_v0.py -q     # skips the seal/verify te
 
 A captured run is in [`example_packet.md`](example_packet.md).
 
+## Ontology Exit v0 (metadata-only, capture-driven)
+
+A sibling entry point seals a tenant owner's **captured Ontology API v2**
+responses (object types, outgoing link types, objects) into a genesis shard
+whose **structure is queryable through Spectra** and whose **verbatim responses
+are preserved byte-for-byte**. No Palantir code, credentials, or network calls
+in our path — the owner runs the three GETs out of band and saves the JSON.
+
+```bash
+python -m foundry_exit.run_ontology_exit <capture_dir> --out ontology_exit_out
+python -m pytest tests/test_foundry_ontology_exit.py -q   # kernel/duckdb tests skip cleanly if absent
+```
+
+See **[`ONTOLOGY_EXIT.md`](ONTOLOGY_EXIT.md)** for the three exact curl commands,
+the capture-dir convention, the claims-vocabulary table, the honest evidence
+tier, and what v0 deliberately does not do.
+
 ## Object model (the four planes)
 
 - **Data plane** — `DatasetObject` / `DatasetExport`: dataset RID, branch/version, object paths, format, schema hints, **object checksums + sizes**, staged local path.
