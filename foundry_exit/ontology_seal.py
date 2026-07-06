@@ -14,10 +14,13 @@ What the sealed shard holds:
     links, cardinalities, foreign keys, and instance counts.
 
 INVARIANT (mirrors seal.py's "external-Palantir-ID-never-becomes-custody-ID"):
-Palantir ``rid`` / ``apiName`` values appear ONLY as entity labels, claim
-literals, and sealed content bytes. They are NEVER the shard identity and never
-a custody id. The custody id is the genesis-derived ``sh1_`` on the sealed
-manifest bytes (``derive_shard_id``).
+no Palantir ``rid`` ever appears in the sealed ``manifest.json``. ``apiName``
+values appear as entity labels, claim literals, sealed content bytes, and — one
+declared exception — inside the flattened content FILENAMES recorded under
+``manifest.sources`` (``linkTypes__<apiName>.json``), which means an apiName is
+hashed INTO the genesis-derived custody id along with every other manifest
+byte, but is never ITSELF a custody id. The custody id is always the
+genesis-derived ``sh1_`` over the sealed manifest bytes (``derive_shard_id``).
 
 BOUNDARY on content layout: the genesis compiler seals only TOP-LEVEL files in
 ``content/`` (it does not recurse). The capture's ``linkTypes/<X>.json`` and

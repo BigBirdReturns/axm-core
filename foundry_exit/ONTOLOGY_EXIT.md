@@ -148,12 +148,15 @@ name. `content/source.txt` is the canonical text the claims cite.
 
 ## Custody / external-id invariant
 
-Palantir `rid` / `apiName` values appear **only** as entity labels, claim
-literals, and sealed content bytes. They are **never** the shard identity and
-**never** a custody id. The custody id is the **genesis-derived `sh1_`** on the
-sealed manifest bytes (`axm_verify.crypto.derive_shard_id`). The
-identity-bearing `manifest.json` contains **no** Palantir rid. This mirrors the
-dataset-exit "external-Palantir-ID-never-becomes-custody-ID" invariant.
+The identity-bearing `manifest.json` contains **no** Palantir `rid`. `apiName`
+values appear as entity labels, claim literals, sealed content bytes, and — one
+declared exception — inside the flattened content **filenames** recorded under
+`manifest.sources` (`linkTypes__<apiName>.json`). That means an apiName is
+hashed **into** the genesis-derived custody id along with every other manifest
+byte, but is never **itself** a custody id: the custody id is always the
+**genesis-derived `sh1_`** over the sealed manifest bytes
+(`axm_verify.crypto.derive_shard_id`). This mirrors the dataset-exit
+"external-Palantir-ID-never-becomes-custody-ID" invariant.
 
 ## What v0 deliberately does NOT do
 
@@ -171,3 +174,9 @@ dataset-exit "external-Palantir-ID-never-becomes-custody-ID" invariant.
   does not mint a claim per object row.
 - **No network, no credentials, no Palantir code.** The tenant owner runs the
   GETs; this feature only reads saved JSON.
+- **Dangling link endpoints are minted, not rejected.** A `linkTypes` entry
+  whose target (or source) type is absent from `objectTypes.json` still gets a
+  bare `objectType/<name>` entity and a `links_to` claim — the capture said the
+  edge exists, so the edge is preserved verbatim. The minted endpoint simply
+  carries no properties. If you want a complete graph, capture every type the
+  links reference.

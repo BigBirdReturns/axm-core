@@ -194,7 +194,9 @@ def _last_total_count(pages: List[Mapping[str, Any]]) -> Optional[str]:
 
 def _parse_object_type(d: Mapping[str, Any], where: str) -> ObjectTypeV2:
     api_name = str(_require(d, "apiName", where))
-    props_map = _require(d, "properties", f"{where} apiName={api_name!r}")
+    # Tolerant: a type with no properties may omit the key entirely rather than
+    # sending an empty map — treat absent as {}.
+    props_map = d.get("properties") or {}
     if not isinstance(props_map, Mapping):
         raise OntologyCaptureError(f"{where} apiName={api_name!r}: 'properties' must be an object")
     props: List[PropertyV2] = []
@@ -275,6 +277,17 @@ def load_ontology_capture(capture_dir: str | Path) -> OntologyCapture:
     object_types = tuple(
         _parse_object_type(d, OBJECT_TYPES_FILE) for d in _merged_data(ot_pages, OBJECT_TYPES_FILE)
     )
+    seen_types: set = set()
+    for ot in object_types:
+        if ot.api_name in seen_types:
+            # Refuse here with a clear name rather than letting the genesis
+            # compiler abort later on a duplicate claim_id with an opaque
+            # subprocess error (e.g. the same page captured twice).
+            raise OntologyCaptureError(
+                f"{OBJECT_TYPES_FILE}: duplicate object type apiName={ot.api_name!r} "
+                f"(same page captured twice, or overlapping pages merged?)"
+            )
+        seen_types.add(ot.api_name)
     known_types = {ot.api_name for ot in object_types}
 
     # --- linkTypes/<apiName>.json (OPTIONAL, one per source object type) ---

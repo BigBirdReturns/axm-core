@@ -159,6 +159,27 @@ def test_loader_errors_name_file_and_missing_key(tmp_path):
         load_ontology_capture(_write_capture(tmp_path / "c", {"nextPageToken": "x"}))
 
 
+def test_duplicate_api_name_is_a_clear_refusal(tmp_path):
+    """Control question: the same object type captured twice (page saved twice,
+    overlapping pages merged) must refuse with a clear OntologyCaptureError
+    naming the apiName — never surface as the genesis compiler's opaque
+    duplicate-claim-id subprocess abort."""
+    ot = {"apiName": "Widget", "primaryKey": "id", "rid": "ri.ontology.main.object-type.abc",
+          "properties": {"id": {"dataType": {"type": "string"}, "rid": "ri.x"}}}
+    doc = {"data": [ot, dict(ot)]}
+    with pytest.raises(OntologyCaptureError, match="duplicate object type apiName='Widget'"):
+        load_ontology_capture(_write_capture(tmp_path, doc))
+
+
+def test_properties_key_may_be_absent(tmp_path):
+    """Control question: a type with no properties may omit the key entirely
+    (tolerant parsing) — treated as an empty map, not an error."""
+    doc = {"data": [{"apiName": "Bare", "rid": "ri.ontology.main.object-type.bare"}]}
+    cap = load_ontology_capture(_write_capture(tmp_path, doc))
+    assert cap.object_types[0].api_name == "Bare"
+    assert cap.object_types[0].properties == ()
+
+
 def test_translation_correctness():
     """Control question: does translation produce the importer's ontology.json
     superset (ids, typed properties, links with target/cardinality/foreign_key,
@@ -340,6 +361,12 @@ def test_external_id_never_becomes_custody_id(sealed):
     for x in ext:
         if x.startswith("ri.ontology.main."):
             assert x not in manifest_text
+
+    # Declared exception (see ontology_seal docstring): apiNames DO appear in
+    # the flattened content filenames listed under manifest.sources, and are
+    # therefore hashed into — but are never themselves — the custody id.
+    assert "linkTypes__Flight.json" in manifest_text
+    assert shard.shard_id == derive_shard_id(manifest_bytes)
 
 
 # ---------------------------------------------------------------------------
