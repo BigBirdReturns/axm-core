@@ -37,6 +37,12 @@ class FilesystemExportSource:
         )
 
 
+class ExportPermissionError(RuntimeError):
+    """The export surface denied read access to a prefix or object (S3
+    ``AccessDenied`` and friends). Surfaced so the probe records a permission
+    gap instead of silently widening or silently dropping evidence."""
+
+
 @dataclass(frozen=True)
 class S3Config:
     endpoint_url: str
@@ -49,19 +55,38 @@ class S3Config:
     secret_key_env: str = "AXM_S3_SECRET_KEY"
 
 
+# S3 error codes that mean "you are not allowed to read this" (vs. "not found").
+_PERMISSION_CODES = frozenset({"AccessDenied", "AllAccessDisabled", "Forbidden", "403"})
+
+
+def _error_code(exc: Exception) -> Optional[str]:
+    """Pull the S3/botocore error code out of a ClientError-shaped exception,
+    without importing botocore (the sim raises the same shape)."""
+    resp = getattr(exc, "response", None)
+    if isinstance(resp, dict):
+        return (resp.get("Error") or {}).get("Code")
+    return None
+
+
 class S3ExportSource:
     """S3-compatible adapter (boto3, imported lazily). Read-only: it uses only
-    ``get_object`` / ``list_objects_v2``. No real Palantir call is required for
-    tests; this is exercised only with real credentials against a real endpoint.
+    ``list_objects_v2`` / ``get_object`` / ``head_object`` — no write path.
+
+    ``list_objects`` follows the continuation token to completion, so a dataset
+    larger than one page (S3 caps a page at 1000 keys) is listed in full rather
+    than silently truncated. A pre-built ``client`` may be injected (for a
+    faithful in-process simulation, or a caller-configured session) instead of
+    the default lazy boto3 client; the read-only code path is identical either
+    way.
     """
 
-    def __init__(self, config: S3Config) -> None:
+    def __init__(self, config: S3Config, *, client=None) -> None:
         self._cfg = config
-        self._client = None
+        self._client = client
 
     def _client_lazy(self):
         if self._client is None:
-            import boto3  # lazy: only needed for live extraction
+            import boto3  # lazy: only needed for a live/boto3-backed endpoint
 
             self._client = boto3.client(
                 "s3",
@@ -76,11 +101,55 @@ class S3ExportSource:
         return f"{self._cfg.prefix}{object_path}" if self._cfg.prefix else object_path
 
     def read_bytes(self, object_path: str) -> bytes:
-        resp = self._client_lazy().get_object(Bucket=self._cfg.bucket, Key=self._key(object_path))
+        try:
+            resp = self._client_lazy().get_object(Bucket=self._cfg.bucket, Key=self._key(object_path))
+        except Exception as exc:  # translate a permission denial into our type
+            code = _error_code(exc)
+            if code in _PERMISSION_CODES:
+                raise ExportPermissionError(f"{object_path}: {code}") from exc
+            raise
         return resp["Body"].read()
 
+    def object_metadata(self, object_path: str) -> dict:
+        """Read-only object metadata (version id, security markings, size) via
+        ``head_object``. Markings are recorded for provenance only — they are
+        never made portable (importing an export re-creates no access control)."""
+        try:
+            resp = self._client_lazy().head_object(Bucket=self._cfg.bucket, Key=self._key(object_path))
+        except Exception as exc:
+            code = _error_code(exc)
+            if code in _PERMISSION_CODES:
+                raise ExportPermissionError(f"{object_path}: {code}") from exc
+            raise
+        meta = resp.get("Metadata") or {}
+        return {
+            "version_id": resp.get("VersionId"),
+            "size_bytes": resp.get("ContentLength"),
+            "markings": [meta[k] for k in sorted(meta) if "marking" in k.lower()],
+        }
+
     def list_objects(self, prefix: str = "") -> List[str]:
-        resp = self._client_lazy().list_objects_v2(
-            Bucket=self._cfg.bucket, Prefix=self._key(prefix)
-        )
-        return sorted(o["Key"] for o in resp.get("Contents", []))
+        """List every object under the prefix, following continuation tokens to
+        completion. A single ``list_objects_v2`` call caps at 1000 keys and sets
+        ``IsTruncated``; ignoring the token silently drops evidence, so we page."""
+        client = self._client_lazy()
+        keys: List[str] = []
+        token: Optional[str] = None
+        try:
+            while True:
+                kwargs = {"Bucket": self._cfg.bucket, "Prefix": self._key(prefix)}
+                if token is not None:
+                    kwargs["ContinuationToken"] = token
+                resp = client.list_objects_v2(**kwargs)
+                keys.extend(o["Key"] for o in resp.get("Contents", []))
+                if not resp.get("IsTruncated"):
+                    break
+                token = resp.get("NextContinuationToken")
+                if not token:  # truncated but no token: refuse to guess, stop honestly
+                    break
+        except Exception as exc:
+            code = _error_code(exc)
+            if code in _PERMISSION_CODES:
+                raise ExportPermissionError(f"{prefix!r}: {code}") from exc
+            raise
+        return sorted(keys)
