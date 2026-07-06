@@ -15,7 +15,7 @@ dependencies = [
   # suite, canonical JSONL core tables, derived shard identity) that also
   # carries the boundary drift-check the CI sources — the same commit the
   # spokes pin. Re-pin to the PyPI release range `>=1.0.0,<2` at v1.0.0.
-  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@fffe7cf0f1c78c8c4bea5f303099db80f7c53ba3",
+  "axm-genesis @ git+https://github.com/BigBirdReturns/axm-genesis.git@9074e7fb2e9cedde692b248cdd0c6a805e77d8ac",
 
   # ── Core deps ─────────────────────────────────────────────────────────────
   "blake3>=0.4.0",
