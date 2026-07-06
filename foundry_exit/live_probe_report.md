@@ -4,13 +4,14 @@
 S3-compatible export surface and produce the same genesis-sealed exit bundle it
 already proved against fixtures?*
 
-**Short answer.** The **code path** does — list → fetch → checksum → the same v0
-dataset manifest → genesis seal → out-of-band verify → detached verify — proven
-end to end against a real `boto3` S3 client. But it was proven against a **local
-`moto` S3-compatible mock, NOT an authorized Palantir Foundry endpoint**. No
-authorized Foundry credentials or endpoint exist in this environment, so the
-authorized-live leg is **BLOCKED, pending creds**. Nothing about the sealed
-bundle model changed.
+**Short answer.** Yes — list → fetch → checksum → the same v0 dataset manifest →
+genesis seal → out-of-band verify → detached verify, proven end to end against a
+real S3 client. This report used a `moto` mock; it is now **superseded by
+[`sim_surface_report.md`](sim_surface_report.md)**, a high-fidelity simulation of
+the Foundry S3 surface (pagination, versioning, markings, permission denial).
+Per standing doctrine, extraction is **not** gated on live credentials — the
+surface is simulated at fidelity and proven against; there is nothing to wait for.
+Nothing about the sealed bundle model changed.
 
 ## What this probe is (and is not)
 
