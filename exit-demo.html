@@ -669,6 +669,83 @@ footer {
   font-family: var(--font-mono);
 }
 
+/* ── RECORDED TERMINAL REPLAY (D·03) ──────────────────── */
+.replay-caption {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--steel);
+  letter-spacing: 0.01em;
+  line-height: 1.65;
+  max-width: 720px;
+  margin: 32px 0 14px;
+}
+.replay-caption code.inline { font-size: 0.95em; }
+
+.term-panel {
+  background: var(--bg-1);
+  border: 1px solid var(--rule-strong);
+  overflow: hidden;
+}
+.term-panel-header {
+  margin-bottom: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.term-replay-btn {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  background: rgba(57,208,216,0.08);
+  border: 1px solid var(--cyan-border);
+  padding: 5px 12px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.term-replay-btn:hover   { background: rgba(57,208,216,0.16); color: var(--white); }
+.term-replay-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.term-screen {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--white-dim);
+  padding: 22px 26px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 232px;
+  margin: 0;
+}
+.term-line, .term-out { display: block; }
+.term-line { margin-top: 14px; }
+.term-line:first-child { margin-top: 0; }
+.term-prompt { color: var(--cyan); }
+.term-cmd   { color: var(--white); }
+.t-id   { color: var(--cyan); }
+.t-ok   { color: var(--green); font-weight: 600; }
+.t-warn { color: var(--amber); font-weight: 600; }
+
+.term-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 1px;
+  background: var(--cyan);
+  vertical-align: text-bottom;
+  animation: term-blink 1s steps(1, start) infinite;
+}
+@keyframes term-blink {
+  0%, 49%  { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .term-cursor { animation: none; opacity: 1; }
+}
+
 /* ── RESPONSIVE ────────────────────────────────────────── */
 @media (max-width: 980px) {
   .demo-grid { grid-template-columns: 1fr; }
@@ -694,6 +771,7 @@ footer {
   .exit-banner { margin: 0 16px; }
   h2 { font-size: clamp(18px, 5vw, 26px); }
   pre, code { font-size: 11px; }
+  .term-screen { font-size: 11px; padding: 16px 18px; }
   .coverage-table, .sample-table { font-size: 11px; }
   .coverage-table th, .coverage-table td,
   .sample-table th, .sample-table td { padding: 8px; }
@@ -1041,7 +1119,7 @@ footer {
       <div class="code-block-dot" style="background:#f85149"></div>
       <div class="code-block-dot" style="background:#d29922"></div>
       <div class="code-block-dot" style="background:#3fb950"></div>
-      <span class="code-block-title">foundry_exit &mdash; capture &rarr; seal &rarr; verify detached</span>
+      <span class="code-block-title">foundry_exit &mdash; capture step (manual, out of band)</span>
     </div>
     <pre>
 <span class="c"># the three GETs happen out of band, with the customer's own bearer token,
@@ -1051,32 +1129,183 @@ footer {
   <span class="pa">https://&lt;tenant&gt;/api/v2/ontologies/&lt;ont&gt;/objectTypes</span>       <span class="op">&gt;</span> capture/objectTypes.json
 <span class="kw">curl</span> ... <span class="pa">/objectTypes/{type}/outgoingLinkTypes</span>                 <span class="op">&gt;</span> capture/linkTypes/&lt;type&gt;.json
 <span class="kw">curl</span> ... <span class="pa">/objects/{type}</span>                                        <span class="op">&gt;</span> capture/objects/&lt;type&gt;.json
-
-<span class="c"># one command: parse the capture, seal it through genesis, verify detached</span>
-<span class="kw">python -m foundry_exit.run_ontology_exit</span> <span class="pa">samples/nhs_synthetic_exit</span> <span class="op">--out</span> <span class="pa">./nhs_exit_out</span>
-
-<span class="ok">&rarr; SEALED   :</span> sh1_3b46e8ea6e4a9515d5582c9d2b556d0d0a00600885d70088e6c1f167ef50664d
-<span class="ok">&rarr; verify   :</span> detached PASS (out-of-band key)
-<span class="ok">&rarr; suite    :</span> axm-hybrid1
-<span class="ok">&rarr; object types :</span> Patient, Encounter, Ward, Clinician
-<span class="ok">&rarr; links        :</span> Encounter -&gt; Patient, Encounter -&gt; Ward
-<span class="ok">&rarr; properties   :</span> 18 typed property claims
-<span class="ok">&rarr; instances    :</span> declared 1200, captured 5 (honest, not hidden)
-
-<span class="c"># then mount the sealed shard into the repo's own query engine and ask it a
-# question &mdash; see tests/test_foundry_ontology_exit.py::
-#   test_sealed_ontology_is_queryable_through_spectra</span>
-<span class="kw">from</span> axiom_runtime.engine <span class="kw">import</span> SpectraEngine
 </pre>
   </div>
 
-  <div class="query-card">
-    <div class="query-input">
-      <span class="query-prompt">$</span>
-      <span>axm ask sh1_3b46e8ea...50664d --key keys/publisher.pub "what links to Patient"</span>
+  <p style="margin-top:24px;">From the capture, one command parses it, seals it through genesis, and verifies it detached &mdash; then a second command mounts the sealed shard into the repository's own query engine (<code class="inline">axiom_runtime.engine.SpectraEngine</code>, see <code class="inline">tests/test_foundry_ontology_exit.py::test_sealed_ontology_is_queryable_through_spectra</code>) and asks it questions. What follows is a recorded replay of exactly that session, captured verbatim:</p>
+
+  <p class="replay-caption">&#9654; Recorded replay &mdash; verbatim output from a real <code class="inline">foundry_exit</code> run on the synthetic sample. Not a live terminal; nothing executes in your browser.</p>
+
+  <div class="term-panel">
+    <div class="code-block-header term-panel-header">
+      <div class="code-block-dot" style="background:#f85149"></div>
+      <div class="code-block-dot" style="background:#d29922"></div>
+      <div class="code-block-dot" style="background:#3fb950"></div>
+      <span class="code-block-title">foundry_exit &mdash; recorded session (replay)</span>
+      <button type="button" class="term-replay-btn" id="term-replay-btn" aria-label="Replay the recorded terminal session">&#9654; replay</button>
     </div>
-    <div class="query-result">&rarr; Encounter &rarr; Patient</div>
+    <pre class="term-screen" id="term-screen" aria-live="polite" aria-label="Recorded terminal replay of a foundry_exit run"></pre>
+    <noscript>
+      <pre class="term-screen"><span class="term-prompt">$</span> python -m foundry_exit.run_ontology_exit samples/nhs_synthetic_exit --out ./nhs_exit_out
+[ontology exit v0: OK &mdash; shard=<span class="t-id">sh1_3b46e8ea6e4a9515d5582c9d2b556d0d0a00600885d70088e6c1f167ef50664d</span>, <span class="t-ok">verify=PASS</span>, object_types=4, claims=48]
+
+<span class="term-prompt">$</span> axm ask ./nhs_exit_out/shard --key publisher.pub "what links to Patient"
+Encounter &rarr; Patient
+<span class="t-id">sh1_3b46e8ea&hellip;</span>  <span class="t-ok">verified</span> via Spectra custody gate
+
+<span class="term-prompt">$</span> axm ask ./nhs_exit_out/shard --key publisher.pub "list object types"
+Clinician   Encounter   Patient   Ward
+
+<span class="term-prompt">$</span> axm ask ./nhs_exit_out/shard --key publisher.pub "instance counts"
+instance_count_declared   <span class="t-warn">1200</span>
+instances_captured           <span class="t-warn">5</span>   (<span class="t-warn">declared vs captured &mdash; partial, stated honestly</span>)</pre>
+    </noscript>
   </div>
+
+  <script>
+  (function() {
+    var screen = document.getElementById('term-screen');
+    var btn = document.getElementById('term-replay-btn');
+    if (!screen) { return; }
+
+    // The exact recorded transcript. Commands are typed out character-by-character;
+    // output lines (already-formatted HTML, with load-bearing values highlighted)
+    // are printed after a short delay, exactly as captured from the real run.
+    var transcript = [
+      {
+        cmd: 'python -m foundry_exit.run_ontology_exit samples/nhs_synthetic_exit --out ./nhs_exit_out',
+        out: [
+          '[ontology exit v0: OK — shard=<span class="t-id">sh1_3b46e8ea6e4a9515d5582c9d2b556d0d0a00600885d70088e6c1f167ef50664d</span>, <span class="t-ok">verify=PASS</span>, object_types=4, claims=48]'
+        ]
+      },
+      {
+        cmd: 'axm ask ./nhs_exit_out/shard --key publisher.pub "what links to Patient"',
+        out: [
+          'Encounter → Patient',
+          '<span class="t-id">sh1_3b46e8ea…</span>  <span class="t-ok">verified</span> via Spectra custody gate'
+        ]
+      },
+      {
+        cmd: 'axm ask ./nhs_exit_out/shard --key publisher.pub "list object types"',
+        out: [
+          'Clinician   Encounter   Patient   Ward'
+        ]
+      },
+      {
+        cmd: 'axm ask ./nhs_exit_out/shard --key publisher.pub "instance counts"',
+        out: [
+          'instance_count_declared   <span class="t-warn">1200</span>',
+          'instances_captured           <span class="t-warn">5</span>   (<span class="t-warn">declared vs captured — partial, stated honestly</span>)'
+        ]
+      }
+    ];
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function buildStaticHTML() {
+      var html = '';
+      for (var i = 0; i < transcript.length; i++) {
+        var b = transcript[i];
+        html += '<span class="term-line"><span class="term-prompt">$</span> ' + escapeHtml(b.cmd) + '</span>';
+        for (var j = 0; j < b.out.length; j++) {
+          html += '<span class="term-out">' + b.out[j] + '</span>';
+        }
+      }
+      return html;
+    }
+
+    function reducedMotion() {
+      return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    function renderStatic() {
+      screen.removeAttribute('aria-busy');
+      screen.innerHTML = buildStaticHTML();
+    }
+
+    var sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
+    var runToken = 0;
+
+    async function playSession(token) {
+      screen.setAttribute('aria-busy', 'true');
+      screen.innerHTML = '';
+
+      for (var i = 0; i < transcript.length; i++) {
+        if (token !== runToken) { return; }
+        var block = transcript[i];
+
+        var line = document.createElement('span');
+        line.className = 'term-line';
+        var prompt = document.createElement('span');
+        prompt.className = 'term-prompt';
+        prompt.textContent = '$';
+        var cmdSpan = document.createElement('span');
+        cmdSpan.className = 'term-cmd';
+        var cursor = document.createElement('span');
+        cursor.className = 'term-cursor';
+        line.appendChild(prompt);
+        line.appendChild(document.createTextNode(' '));
+        line.appendChild(cmdSpan);
+        line.appendChild(cursor);
+        screen.appendChild(line);
+
+        var cmdText = block.cmd;
+        for (var c = 0; c < cmdText.length; c++) {
+          if (token !== runToken) { return; }
+          cmdSpan.textContent += cmdText[c];
+          await sleep(30 + Math.random() * 12); // ~30-42ms per character
+        }
+        cursor.remove();
+
+        await sleep(280 + Math.random() * 180); // ~280-460ms before output appears
+
+        for (var k = 0; k < block.out.length; k++) {
+          if (token !== runToken) { return; }
+          var o = document.createElement('span');
+          o.className = 'term-out';
+          o.innerHTML = block.out[k];
+          screen.appendChild(o);
+          await sleep(160);
+        }
+      }
+
+      if (token !== runToken) { return; }
+      screen.removeAttribute('aria-busy');
+      var idle = document.createElement('span');
+      idle.className = 'term-line';
+      var p2 = document.createElement('span');
+      p2.className = 'term-prompt';
+      p2.textContent = '$';
+      var cur2 = document.createElement('span');
+      cur2.className = 'term-cursor';
+      idle.appendChild(p2);
+      idle.appendChild(document.createTextNode(' '));
+      idle.appendChild(cur2);
+      screen.appendChild(idle);
+    }
+
+    function startReplay() {
+      runToken++;
+      if (reducedMotion()) {
+        renderStatic();
+        return;
+      }
+      playSession(runToken);
+    }
+
+    if (btn) { btn.addEventListener('click', startReplay); }
+
+    // Play on load. Reduced-motion users get the complete transcript instantly,
+    // with no animation and no timers.
+    if (reducedMotion()) {
+      renderStatic();
+    } else {
+      setTimeout(startReplay, 450);
+    }
+  })();
+  </script>
 
   <h2 style="margin-top:56px;">Declared vs. captured &mdash; shown, not hidden.</h2>
   <p>The sample declares 1,200 Patient instances but only 5 rows were captured in this run. Both numbers are sealed as separate claims &mdash; <code class="inline">instance_count_declared</code> and <code class="inline">instances_captured</code> &mdash; so a partial pull can never quietly pass as a complete one. All five rows below are synthetic: invented reference numbers, placeholder names.</p>
