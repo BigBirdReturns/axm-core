@@ -1,0 +1,17 @@
+{
+  "nextPageToken": null,
+  "data": [
+    {
+      "apiName": "forPatient",
+      "objectTypeApiName": "Patient",
+      "cardinality": "ONE",
+      "foreignKeyPropertyApiName": "patientRef"
+    },
+    {
+      "apiName": "onWard",
+      "objectTypeApiName": "Ward",
+      "cardinality": "ONE",
+      "foreignKeyPropertyApiName": "wardCode"
+    }
+  ]
+}
