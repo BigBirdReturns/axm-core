@@ -1,5 +1,9 @@
 # AXM Core
 
+> **New here?** Read **[START_HERE.md](START_HERE.md)** — the whole ecosystem in
+> one page, and which repo to clone for your goal. Exiting Foundry? Jump to
+> **[foundry_exit/FIRST_HOUR.md](foundry_exit/FIRST_HOUR.md)**.
+
 The orchestration hub of the AXM ecosystem. Sits between the cryptographic kernel (axm-genesis) and domain spokes (axm-embodied and others).
 
 ```
@@ -27,7 +31,7 @@ invariant that makes long-term verification possible.
 | **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
 | **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
-| **Foundry Exit** | `foundry_exit/` | Palantir Foundry export + Ontology Exit — sealed, detached-verifiable exit bundles (not yet packaged; see foundry_exit/README.md) |
+| **Foundry Exit** | `foundry_exit/` | Palantir Foundry export + Ontology Exit — sealed, detached-verifiable exit bundles. Packaged: `axm-exit` console script. See [foundry_exit/README.md](foundry_exit/README.md), [FIRST_HOUR.md](foundry_exit/FIRST_HOUR.md), [WORKFLOW_EXIT_MAP.md](foundry_exit/WORKFLOW_EXIT_MAP.md) |
 | **Nodal Flow** | [separate repo](https://github.com/BigBirdReturns/nodalflow) | Desktop UI (Tauri + Svelte + DuckDB) |
 
 Sub-packages (`forge/`, `spectra/`, `clarion/`) are versioned **independently** of the
