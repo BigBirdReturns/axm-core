@@ -1,0 +1,9 @@
+{
+  "branchName": "master",
+  "fieldSchemaList": [
+    {"name": "flightId", "type": "STRING"},
+    {"name": "originName", "type": "STRING"},
+    {"name": "destinationName", "type": "STRING"},
+    {"name": "delayMinutes", "type": "INTEGER"}
+  ]
+}
