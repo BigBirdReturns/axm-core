@@ -1,0 +1,1176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>axm-core — The Ontology Exit, Demonstrated</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Sans:wght@300;400;500&family=Barlow+Condensed:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:           #0d1117;
+  --bg-1:         #161b22;
+  --bg-2:         #1c2330;
+  --bg-3:         #21262d;
+  --steel:        #8b949e;
+  --steel-dim:    #767e8e;
+  --steel-faint:  #5a626a;
+  --cyan:         #39d0d8;
+  --cyan-dim:     #1b6b70;
+  --cyan-glow:    rgba(57,208,216,0.12);
+  --cyan-border:  rgba(57,208,216,0.25);
+  --white:        #e6edf3;
+  --white-dim:    #8b949e;
+  --white-faint:  #5a626a;
+  --rule:         #21262d;
+  --rule-strong:  #30363d;
+  --green:        #3fb950;
+  --green-dim:    rgba(63,185,80,0.15);
+  --amber:        #d29922;
+  --amber-dim:    rgba(210,153,34,0.15);
+  --red:          #f85149;
+  --font-mono:    'IBM Plex Mono', monospace;
+  --font-sans:    'IBM Plex Sans', sans-serif;
+  --font-cond:    'Barlow Condensed', sans-serif;
+    --eco-bg:       #0d1117;
+    --eco-border:   #21262d;
+    --eco-text:     #8b949e;
+    --eco-text-hi:  #e6edf3;
+    --eco-accent:   #39d0d8;
+    --eco-mono:     'IBM Plex Mono', monospace;
+  }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--font-mono);
+  font-size: clamp(13px, 1.4vw, 15px);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ── Scan line overlay ─────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Circuit trace decoration ──────────────────────────── */
+.trace-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  opacity: 0.04;
+}
+.trace-bg svg { width: 100%; height: 100%; }
+
+/* ── NAV ───────────────────────────────────────────────── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(13,17,23,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 44px;
+  overflow-x: auto;
+}
+nav::-webkit-scrollbar { display: none; }
+
+.nav-brand {
+  font-family: var(--font-cond);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-right: 32px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nav-brand span { color: var(--steel); font-weight: 300; }
+
+nav a {
+  color: var(--steel);
+  text-decoration: none;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 0 14px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  transition: color 0.15s;
+  border-bottom: 2px solid transparent;
+}
+nav a:hover { color: var(--white); }
+nav a.active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
+nav a.nav-home { color: var(--steel-dim); border-right: 1px solid var(--rule-strong); margin-right: 8px; padding-right: 18px; }
+
+/* ── HERO ──────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  z-index: 1;
+  padding: 64px 64px 56px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: linear-gradient(180deg, rgba(57,208,216,0.03) 0%, transparent 100%);
+  overflow: hidden;
+}
+
+.hero-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hero-label::before {
+  content: '';
+  display: inline-block;
+  width: 24px;
+  height: 1px;
+  background: var(--cyan);
+}
+
+h1 {
+  font-family: var(--font-cond);
+  font-size: clamp(42px, 7vw, 84px);
+  font-weight: 700;
+  line-height: 0.96;
+  letter-spacing: -0.01em;
+  color: var(--white);
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+h1 em {
+  font-style: normal;
+  color: var(--cyan);
+  display: block;
+}
+
+.hero-sub {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 300;
+  color: var(--white-dim);
+  max-width: 640px;
+  line-height: 1.65;
+  margin-bottom: 40px;
+}
+
+.hero-stats {
+  display: flex;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-val {
+  font-family: var(--font-cond);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--white);
+  letter-spacing: 0.02em;
+}
+.stat-val span { color: var(--cyan); }
+.stat-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--steel);
+  text-transform: uppercase;
+}
+
+/* ── SECTION BASE ──────────────────────────────────────── */
+section {
+  position: relative;
+  z-index: 1;
+  padding: 72px 64px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sec-label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+.sec-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  color: var(--cyan-dim);
+  text-transform: uppercase;
+}
+.sec-num::after {
+  content: '';
+  display: inline-block;
+  width: 48px;
+  height: 1px;
+  background: var(--steel-faint);
+  margin-left: 12px;
+  vertical-align: middle;
+}
+.sec-title {
+  font-family: var(--font-cond);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.25em;
+  color: var(--steel);
+  text-transform: uppercase;
+}
+
+h2 {
+  font-family: var(--font-cond);
+  font-size: clamp(26px, 3.6vw, 40px);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  color: var(--white);
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+p {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--white-dim);
+  line-height: 1.75;
+  max-width: 720px;
+  margin-bottom: 16px;
+}
+p:last-child { margin-bottom: 0; }
+
+code.inline {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--cyan);
+  background: rgba(57,208,216,0.08);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* ── CODE BLOCKS ───────────────────────────────────────── */
+.code-block {
+  background: var(--bg-1);
+  border: 1px solid var(--rule-strong);
+  padding: 24px 28px;
+  overflow-x: auto;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.code-block-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+.code-block-title {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--steel);
+  text-transform: uppercase;
+  margin-left: 4px;
+}
+pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  overflow-x: auto;
+}
+.c  { color: var(--steel-dim); font-style: italic; }   /* comment */
+.kw { color: var(--cyan); }                              /* keyword */
+.st { color: #a5d6ff; }                                  /* string */
+.fn { color: #d2a8ff; }                                  /* function */
+.op { color: var(--white-dim); }                         /* operator */
+.pa { color: var(--amber); }                             /* path */
+.nu { color: #79c0ff; }                                  /* number */
+.ok { color: var(--green); }                             /* success */
+.er { color: var(--red); }                               /* error */
+.hl { color: var(--white); }                             /* highlight */
+
+/* ── FOOTER ────────────────────────────────────────────── */
+footer {
+  position: relative;
+  z-index: 1;
+  padding: 48px 64px;
+  border-top: 1px solid var(--rule-strong);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.footer-brand {
+  font-family: var(--font-cond);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: var(--steel);
+  text-transform: uppercase;
+}
+.footer-links {
+  display: flex;
+  gap: 32px;
+}
+.footer-links a {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--steel-dim);
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.15s;
+}
+.footer-links a:hover { color: var(--cyan); }
+.footer-meta {
+  font-size: 11px;
+  color: var(--steel-dim);
+  letter-spacing: 0.08em;
+}
+
+/* ── HONESTY BANNER ────────────────────────────────────── */
+.exit-banner {
+  position: relative;
+  z-index: 1;
+  margin: 0 64px;
+  padding: 18px 24px;
+  background: var(--amber-dim);
+  border: 1px solid var(--amber);
+  border-left: 4px solid var(--amber);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--white);
+  letter-spacing: 0.01em;
+}
+.exit-banner .tag {
+  color: var(--amber);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+}
+.exit-banner.top { margin-top: 24px; }
+.exit-banner.mid { margin-top: 0; margin-bottom: 48px; }
+
+/* ── SCOPE STRIP (consent / workflow-layer disclosure) ──── */
+.scope-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--rule-strong);
+  border: 1px solid var(--rule-strong);
+  margin: 32px 0 8px;
+}
+.scope-card {
+  background: var(--bg-1);
+  padding: 24px 26px;
+}
+.scope-card .scope-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.25em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.scope-card p {
+  font-size: 14px;
+  color: var(--steel);
+  max-width: none;
+  line-height: 1.65;
+}
+
+/* ── DEMO GRID: silo → pull → sovereign ───────────────── */
+.demo-grid {
+  display: grid;
+  grid-template-columns: 1fr 0.62fr 1fr;
+  gap: 28px;
+  align-items: stretch;
+  margin-top: 48px;
+}
+
+.demo-panel {
+  background: var(--bg-1);
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+.silo-panel {
+  border: 1px dashed var(--amber);
+  background: linear-gradient(180deg, rgba(210,153,34,0.05), var(--bg-1) 40%);
+}
+.sovereign-panel {
+  border: 1px solid var(--cyan-border);
+  background: linear-gradient(180deg, rgba(57,208,216,0.06), var(--bg-1) 40%);
+}
+.hazard-bar {
+  height: 6px;
+  margin: -26px -26px 4px -26px;
+  background: repeating-linear-gradient(135deg, var(--amber) 0 8px, transparent 8px 16px);
+  opacity: 0.55;
+}
+.seal-bar {
+  height: 6px;
+  margin: -26px -26px 4px -26px;
+  background: linear-gradient(90deg, var(--cyan-dim), var(--cyan), var(--cyan-dim));
+  opacity: 0.65;
+}
+
+.panel-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  width: fit-content;
+}
+.badge-locked { color: var(--amber); border: 1px solid var(--amber); }
+.badge-sealed { color: var(--green); border: 1px solid var(--green); }
+
+.panel-title {
+  font-family: var(--font-cond);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--white);
+  text-transform: uppercase;
+}
+.panel-sub {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--steel);
+  line-height: 1.6;
+  max-width: none;
+}
+
+.node-graph { width: 100%; height: 210px; display: block; }
+.silo-panel .node-graph .lnk { stroke: var(--steel-faint); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.7; }
+.silo-panel .node-graph .nd-circle { fill: var(--bg-2); stroke: var(--steel-dim); stroke-width: 1.5; }
+.silo-panel .node-graph .nd-label { fill: var(--steel); }
+.silo-panel .node-graph .nd-solo { stroke-dasharray: 3 3; opacity: 0.6; }
+
+.sovereign-panel .node-graph .lnk { stroke: var(--cyan); stroke-width: 2; }
+.sovereign-panel .node-graph .nd-circle { fill: rgba(57,208,216,0.10); stroke: var(--cyan); stroke-width: 2; }
+.sovereign-panel .node-graph .nd-label { fill: var(--white); }
+.sovereign-panel .node-graph .nd-solo { stroke: var(--cyan-dim); }
+
+.panel-caption {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--steel-dim);
+  letter-spacing: 0.02em;
+  border-top: 1px solid var(--rule);
+  padding-top: 14px;
+}
+.panel-caption strong { color: var(--white); font-weight: 500; }
+
+/* receipt card, mounted inside the sovereign panel */
+.receipt-card {
+  background: var(--bg);
+  border: 1px solid var(--cyan-border);
+  padding: 16px 18px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.85;
+  color: var(--steel);
+  overflow-x: auto;
+}
+.receipt-card .rk { color: var(--steel-dim); display: inline-block; min-width: 128px; }
+.receipt-card .rv { color: var(--white); word-break: break-all; }
+.receipt-card .rv.ok { color: var(--green); word-break: normal; }
+.receipt-card .rv.warn { color: var(--amber); word-break: normal; }
+
+/* ── PULL COLUMN ───────────────────────────────────────── */
+.pull-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+  padding: 8px 4px;
+}
+.pull-heading {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 4px;
+}
+.pull-req {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pull-req-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--white-dim);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pull-req-label .verb { color: var(--cyan); }
+.pull-req-label .count { color: var(--steel-dim); }
+.pull-track {
+  position: relative;
+  height: 2px;
+  background: var(--rule-strong);
+  border-radius: 2px;
+  overflow: visible;
+}
+.pull-track::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -4%;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan-glow), 0 0 2px var(--cyan);
+  animation: pull-flow 2.8s linear infinite;
+}
+.pull-req:nth-child(2) .pull-track::before { animation-delay: 0.5s; }
+.pull-req:nth-child(3) .pull-track::before { animation-delay: 1s; }
+.pull-req:nth-child(4) .pull-track::before { animation-delay: 1.5s; }
+@keyframes pull-flow {
+  0%   { left: -4%;  opacity: 0; }
+  8%   { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { left: 104%; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pull-track::before { animation: none; left: 46%; opacity: 1; }
+}
+.pull-footnote {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--steel-faint);
+  text-align: center;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+
+/* ── COVERAGE TABLE ────────────────────────────────────── */
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 28px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.coverage-table th,
+.coverage-table td {
+  border-bottom: 1px solid var(--rule);
+  padding: 13px 16px;
+  text-align: left;
+  vertical-align: top;
+  color: var(--white-dim);
+}
+.coverage-table th {
+  color: var(--steel);
+  font-size: 9.5px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.cov-yes { color: var(--green); font-weight: 600; white-space: nowrap; }
+.cov-no  { color: var(--steel-dim); font-weight: 600; white-space: nowrap; }
+
+/* ── PATIENT SAMPLE TABLE ──────────────────────────────── */
+.sample-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.sample-table th, .sample-table td {
+  border-bottom: 1px solid var(--rule);
+  padding: 9px 14px;
+  text-align: left;
+  color: var(--white-dim);
+}
+.sample-table th {
+  color: var(--steel);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.sample-table td.ref { color: var(--cyan); }
+.sample-table td.name { color: var(--white); }
+
+.query-card {
+  background: var(--bg-1);
+  border: 1px solid var(--rule-strong);
+  padding: 24px 26px;
+  margin-top: 24px;
+}
+.query-input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--white);
+  margin-bottom: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.query-prompt { color: var(--cyan); flex-shrink: 0; }
+.query-result {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--green);
+  font-family: var(--font-mono);
+}
+
+/* ── RESPONSIVE ────────────────────────────────────────── */
+@media (max-width: 980px) {
+  .demo-grid { grid-template-columns: 1fr; }
+  .pull-col { flex-direction: column; padding: 24px 0; }
+  .pull-track { width: 100%; }
+}
+@media (max-width: 900px) {
+  .hero { padding: 48px 24px 40px; }
+  section { padding: 56px 24px; }
+  footer { padding: 40px 24px; }
+  nav { padding: 0 16px; }
+  .exit-banner { margin: 0 24px; }
+  .scope-strip { grid-template-columns: 1fr; }
+  h1 { font-size: clamp(34px, 10vw, 64px); }
+}
+@media (max-width: 580px) {
+  body { font-size: 13px; }
+  .hero { padding: 32px 16px 28px; }
+  section { padding: 36px 16px; }
+  footer { padding: 28px 16px; }
+  nav { padding: 0 8px; }
+  nav a { font-size: 10px; padding: 10px 6px; letter-spacing: 0.04em; }
+  .exit-banner { margin: 0 16px; }
+  h2 { font-size: clamp(18px, 5vw, 26px); }
+  pre, code { font-size: 11px; }
+  .coverage-table, .sample-table { font-size: 11px; }
+  .coverage-table th, .coverage-table td,
+  .sample-table th, .sample-table td { padding: 8px; }
+}
+</style>
+</head>
+<body>
+<!--
+  AXM Ecosystem Nav — shared across all pages
+
+  USAGE: Paste this block at the top of <body> in each page.
+  Set data-active to the current page's key.
+
+  The nav reads CSS custom properties from the host page:
+    --eco-bg       (fallback: #0e0e0f)
+    --eco-border   (fallback: #2a2a2e)
+    --eco-text     (fallback: #666)
+    --eco-text-hi  (fallback: #e0e0e0)
+    --eco-accent   (fallback: #c8a84b)
+    --eco-mono     (fallback: 'DM Mono', monospace)
+
+  Each page sets these in its :root {} to match its palette.
+-->
+<style>
+.eco-nav {
+  position: relative;
+  z-index: 900;
+  background: var(--eco-bg, #0e0e0f);
+  border-bottom: 1px solid var(--eco-border, #2a2a2e);
+  font-family: var(--eco-mono, 'DM Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  user-select: none;
+}
+.eco-nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  gap: 6px;
+}
+.eco-nav-brand {
+  color: var(--eco-text, #666);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+.eco-nav-brand strong {
+  color: var(--eco-text-hi, #e0e0e0);
+  font-weight: 500;
+}
+.eco-nav-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--eco-border, #2a2a2e);
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+.eco-nav a {
+  color: var(--eco-text, #666);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+  position: relative;
+}
+.eco-nav a:hover {
+  color: var(--eco-text-hi, #e0e0e0);
+  background: rgba(255,255,255,0.03);
+}
+.eco-nav a.eco-active {
+  color: var(--eco-accent, #c8a84b);
+}
+.eco-nav a.eco-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: var(--eco-accent, #c8a84b);
+  opacity: 0.6;
+}
+.eco-nav-kind {
+  font-size: 8px;
+  opacity: 0.5;
+  display: inline-block;
+  margin-left: 2px;
+  vertical-align: top;
+}
+.eco-nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.eco-nav-github {
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+.eco-nav-github:hover {
+  opacity: 0.8;
+}
+@media (max-width: 768px) {
+  .eco-nav-inner {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .eco-nav-inner::-webkit-scrollbar { display: none; }
+  .eco-nav a { padding: 6px 7px; font-size: 9px; }
+  .eco-nav-brand { display: none; }
+}
+</style>
+
+<div class="eco-nav" data-active="core">
+  <div class="eco-nav-inner">
+    <div class="eco-nav-brand"><strong>AXM</strong> &nbsp;Protocol</div>
+    <div class="eco-nav-sep"></div>
+    <a href="https://bigbirdreturns.github.io/axm-genesis/" data-page="genesis">Genesis<span class="eco-nav-kind"> kernel</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-core/" data-page="core">Core<span class="eco-nav-kind"> hub</span></a>
+    <div class="eco-nav-sep"></div>
+    <a href="https://bigbirdreturns.github.io/axm-chat/" data-page="chat">Chat<span class="eco-nav-kind"> spoke</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-show/" data-page="show">Show<span class="eco-nav-kind"> spoke</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-embodied/" data-page="embodied">Embodied<span class="eco-nav-kind"> spoke</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-fleet/" data-page="fleet">Fleet<span class="eco-nav-kind"> spoke</span></a>
+    <a href="https://bigbirdreturns.github.io/axm-sfn/" data-page="sfn">SFN<span class="eco-nav-kind"> spoke</span></a>
+    <div class="eco-nav-right">
+      <a href="https://github.com/BigBirdReturns" class="eco-nav-github" target="_blank" title="GitHub">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+// Auto-highlight active page based on data-active attribute
+(function() {
+  const nav = document.querySelector('.eco-nav');
+  if (!nav) return;
+  const active = nav.dataset.active;
+  if (active) {
+    const link = nav.querySelector(`[data-page="${active}"]`);
+    if (link) link.classList.add('eco-active');
+  }
+})();
+</script>
+
+<!-- Circuit trace bg -->
+<div class="trace-bg" aria-hidden="true">
+  <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
+    <g stroke="rgba(57,208,216,1)" stroke-width="1" fill="none">
+      <polyline points="0,120 180,120 180,240 480,240"/>
+      <polyline points="480,240 480,80 720,80"/>
+      <polyline points="720,80 720,320 960,320"/>
+      <polyline points="960,320 960,160 1200,160 1200,400"/>
+      <polyline points="1200,400 1440,400"/>
+      <polyline points="0,480 120,480 120,600 360,600 360,480 600,480"/>
+      <polyline points="600,480 600,720 840,720 840,560 1080,560"/>
+      <polyline points="1080,560 1080,760 1440,760"/>
+      <circle cx="180" cy="120" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="480" cy="240" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="720" cy="80" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="960" cy="320" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="1200" cy="160" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="120" cy="480" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="360" cy="600" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="600" cy="480" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="840" cy="720" r="3" fill="rgba(57,208,216,1)"/>
+      <circle cx="1080" cy="560" r="3" fill="rgba(57,208,216,1)"/>
+    </g>
+  </svg>
+</div>
+
+<!-- NAV -->
+<nav id="top-nav">
+  <span class="nav-brand">AXM<span>-core</span></span>
+  <a href="index.html" class="nav-home">&larr; Core</a>
+  <a href="#overview" class="active">Overview</a>
+  <a href="#demo">The Flow</a>
+  <a href="#artifacts">The Real Run</a>
+  <a href="#scope">Scope &amp; Consent</a>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-label">AXM · Foundry Exit · Ontology Demo</div>
+  <h1>An Ontology.<em>Leaving A Silo.<br>Landing Sealed.</em></h1>
+  <p class="hero-sub">This page walks through one real run of the Ontology Exit: a small NHS-shaped ontology pulled out of a vendor data platform with the customer's own credentials, and resealed into a genesis-signed record that verifies with nothing but its own bytes and an out-of-band key.</p>
+  <div class="hero-stats">
+    <div class="stat">
+      <span class="stat-val"><span>4</span></span>
+      <span class="stat-label">Object types exited</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val"><span>18</span></span>
+      <span class="stat-label">Typed property claims</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">detached <span>PASS</span></span>
+      <span class="stat-label">Out-of-band verify</span>
+    </div>
+  </div>
+</header>
+
+<div class="exit-banner top">
+  SYNTHETIC — NHS-shaped sample, invented data, no real patient data ever. Reconciled against Palantir's published Ontology API v2 wire shapes. NOT run against an authorized live tenant.
+</div>
+
+<!-- OVERVIEW -->
+<section id="overview">
+  <div class="sec-label">
+    <span class="sec-num">D · 01</span>
+    <span class="sec-title">Why This Demo Exists</span>
+  </div>
+  <h2>Platforms hold your<br>structure hostage.</h2>
+  <p>A CSV export gives you rows. It does not give you the object types, the typed properties, the links, the cardinalities — the ontology that makes the rows mean anything. That structure usually lives only inside the vendor's platform, reachable only through the vendor's tools, on the vendor's terms.</p>
+  <p>The Ontology Exit takes the structure out too. Below is one real, reproducible run of it against a synthetic NHS-shaped ontology, shown as a familiar node-and-link ontology graph — walled on one side, sealed and yours on the other.</p>
+
+  <div class="scope-strip">
+    <div class="scope-card">
+      <div class="scope-tag">What this covers</div>
+      <p>Ontology <strong style="color:var(--white)">structure</strong> — object types, typed properties, primary keys, links, cardinalities — and object <strong style="color:var(--white)">instance data</strong>, both promoted to signed claims and preserved byte-for-byte as verbatim API responses.</p>
+    </div>
+    <div class="scope-card">
+      <div class="scope-tag">What this does not cover</div>
+      <p>The <strong style="color:var(--white)">workflow layer</strong>: pipelines and transform code, Actions and Functions, Workshop/Slate applications, and the permission/security model. Not yet exited. Not implied here.</p>
+    </div>
+  </div>
+</section>
+
+<!-- THE FLOW -->
+<section id="demo">
+  <div class="sec-label">
+    <span class="sec-num">D · 02</span>
+    <span class="sec-title">Silo &rarr; Pull &rarr; Sovereign Record</span>
+  </div>
+  <h2>The same graph.<br>Before and after.</h2>
+  <p>Four object types, drawn as an ontology graph in the shape every enterprise-ontology tool renders. On the left it is walled inside a vendor data platform. On the right it is the identical structure, reconstructed on your side — sealed, portable, and verifiable without the vendor in the loop.</p>
+
+  <div class="exit-banner mid" style="margin-top:32px;">
+    SYNTHETIC — NHS-shaped sample, invented data, no real patient data ever. Reconciled against Palantir's published Ontology API v2 wire shapes. NOT run against an authorized live tenant. The graph below is drawn from the invented sample in this repository; no Palantir tenant, real or otherwise, was accessed to produce it.
+  </div>
+
+  <div class="demo-grid">
+
+    <!-- LEFT: THE SILO -->
+    <div class="demo-panel silo-panel">
+      <div class="hazard-bar"></div>
+      <span class="panel-badge badge-locked">Locked &middot; Vendor Custody</span>
+      <div class="panel-title">The Silo</div>
+      <p class="panel-sub">A generic vendor data platform &mdash; a Foundry-shaped silo. The wire shape below is Palantir's published Ontology API v2; nothing here is a claim of access to, or affiliation with, an actual Palantir tenant.</p>
+
+      <svg class="node-graph" viewBox="0 0 320 230" role="img" aria-label="Walled ontology graph: Encounter linked to Patient and Ward; Clinician isolated, unlinked in this capture">
+        <line class="lnk" x1="160" y1="55" x2="72" y2="185"/>
+        <line class="lnk" x1="160" y1="55" x2="248" y2="185"/>
+        <circle class="nd-circle" cx="160" cy="50" r="26"/>
+        <text class="nd-label" x="160" y="54" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Encounter</text>
+        <circle class="nd-circle" cx="72" cy="190" r="24"/>
+        <text class="nd-label" x="72" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Patient</text>
+        <circle class="nd-circle" cx="248" cy="190" r="24"/>
+        <text class="nd-label" x="248" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Ward</text>
+        <circle class="nd-circle nd-solo" cx="270" cy="42" r="18"/>
+        <text class="nd-label" x="270" y="45" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8">Clinician</text>
+      </svg>
+
+      <p class="panel-caption">You can <strong>see</strong> the ontology in the vendor's console. You cannot <strong>take</strong> it &mdash; not the structure, not detached, not on your own authority. <em>Clinician</em> has no captured link in this run &mdash; shown honestly, not hidden.</p>
+    </div>
+
+    <!-- MIDDLE: THE PULL -->
+    <div class="pull-col">
+      <div class="pull-heading">The Pull &mdash; your tenant, your token</div>
+
+      <div class="pull-req">
+        <div class="pull-req-label"><span><span class="verb">GET</span> objectTypes</span><span class="count">4 types</span></div>
+        <div class="pull-track"></div>
+      </div>
+      <div class="pull-req">
+        <div class="pull-req-label"><span><span class="verb">GET</span> outgoingLinkTypes</span><span class="count">2 links</span></div>
+        <div class="pull-track"></div>
+      </div>
+      <div class="pull-req">
+        <div class="pull-req-label"><span><span class="verb">GET</span> objects</span><span class="count">5 / 1200</span></div>
+        <div class="pull-track"></div>
+      </div>
+
+      <div class="pull-footnote">
+        three GETs, run with the customer's own<br>credentials, against the vendor's<br><strong style="color:var(--steel)">published</strong> Ontology API v2.<br><br>
+        no Palantir code runs in this path.
+      </div>
+    </div>
+
+    <!-- RIGHT: THE SOVEREIGN RECORD -->
+    <div class="demo-panel sovereign-panel">
+      <div class="seal-bar"></div>
+      <span class="panel-badge badge-sealed">Sealed &middot; Your Custody</span>
+      <div class="panel-title">The Sovereign Record</div>
+      <p class="panel-sub">The same structure, reconstructed on your side. Genesis-signed. Detached-verifiable with an out-of-band key. No Palantir, no AXM, no vendor required to hold or check it.</p>
+
+      <svg class="node-graph" viewBox="0 0 320 230" role="img" aria-label="Sealed ontology graph: Encounter linked to Patient and Ward; Clinician present as an object type, unlinked in this capture">
+        <line class="lnk" x1="160" y1="55" x2="72" y2="185"/>
+        <line class="lnk" x1="160" y1="55" x2="248" y2="185"/>
+        <circle class="nd-circle" cx="160" cy="50" r="26"/>
+        <text class="nd-label" x="160" y="54" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Encounter</text>
+        <circle class="nd-circle" cx="72" cy="190" r="24"/>
+        <text class="nd-label" x="72" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Patient</text>
+        <circle class="nd-circle" cx="248" cy="190" r="24"/>
+        <text class="nd-label" x="248" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Ward</text>
+        <circle class="nd-circle nd-solo" cx="270" cy="42" r="18"/>
+        <text class="nd-label" x="270" y="45" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8">Clinician</text>
+      </svg>
+
+      <div class="receipt-card">
+        <div><span class="rk">shard</span><span class="rv">sh1_3b46e8ea6e4a9515d5582c9d2b556d0d0a00600885d70088e6c1f167ef50664d</span></div>
+        <div><span class="rk">verify</span><span class="rv ok">detached PASS (out-of-band key)</span></div>
+        <div><span class="rk">suite</span><span class="rv">axm-hybrid1</span></div>
+        <div><span class="rk">object types</span><span class="rv">Patient, Encounter, Ward, Clinician (4)</span></div>
+        <div><span class="rk">links</span><span class="rv">Encounter&rarr;Patient, Encounter&rarr;Ward</span></div>
+        <div><span class="rk">property claims</span><span class="rv">18 typed</span></div>
+        <div><span class="rk">instances</span><span class="rv warn">declared 1200 / captured 5</span></div>
+      </div>
+
+      <p class="panel-caption">Unlocked. Portable. Queryable. The declared-vs-captured gap is <strong>shown</strong>, not smoothed over &mdash; a partial capture, honestly labeled.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- THE REAL RUN -->
+<section id="artifacts">
+  <div class="sec-label">
+    <span class="sec-num">D · 03</span>
+    <span class="sec-title">The Real Run</span>
+  </div>
+  <h2>Reproducible.<br>Not a mockup.</h2>
+  <p>Every value on this page &mdash; the shard id, the counts, the sample rows &mdash; comes from actually running the exit against the synthetic sample checked into this repository. Run it yourself:</p>
+
+  <div class="code-block" style="margin-top:24px;">
+    <div class="code-block-header">
+      <div class="code-block-dot" style="background:#f85149"></div>
+      <div class="code-block-dot" style="background:#d29922"></div>
+      <div class="code-block-dot" style="background:#3fb950"></div>
+      <span class="code-block-title">foundry_exit &mdash; capture &rarr; seal &rarr; verify detached</span>
+    </div>
+    <pre>
+<span class="c"># the three GETs happen out of band, with the customer's own bearer token,
+# against the vendor's PUBLISHED Ontology API v2 &mdash; not shown here, never
+# our credentials, never a live tenant in this repository</span>
+<span class="kw">curl</span> -H <span class="st">"Authorization: Bearer $CUSTOMER_TOKEN"</span> \
+  <span class="pa">https://&lt;tenant&gt;/api/v2/ontologies/&lt;ont&gt;/objectTypes</span>       <span class="op">&gt;</span> capture/objectTypes.json
+<span class="kw">curl</span> ... <span class="pa">/objectTypes/{type}/outgoingLinkTypes</span>                 <span class="op">&gt;</span> capture/linkTypes/&lt;type&gt;.json
+<span class="kw">curl</span> ... <span class="pa">/objects/{type}</span>                                        <span class="op">&gt;</span> capture/objects/&lt;type&gt;.json
+
+<span class="c"># one command: parse the capture, seal it through genesis, verify detached</span>
+<span class="kw">python -m foundry_exit.run_ontology_exit</span> <span class="pa">samples/nhs_synthetic_exit</span> <span class="op">--out</span> <span class="pa">./nhs_exit_out</span>
+
+<span class="ok">&rarr; SEALED   :</span> sh1_3b46e8ea6e4a9515d5582c9d2b556d0d0a00600885d70088e6c1f167ef50664d
+<span class="ok">&rarr; verify   :</span> detached PASS (out-of-band key)
+<span class="ok">&rarr; suite    :</span> axm-hybrid1
+<span class="ok">&rarr; object types :</span> Patient, Encounter, Ward, Clinician
+<span class="ok">&rarr; links        :</span> Encounter -&gt; Patient, Encounter -&gt; Ward
+<span class="ok">&rarr; properties   :</span> 18 typed property claims
+<span class="ok">&rarr; instances    :</span> declared 1200, captured 5 (honest, not hidden)
+
+<span class="c"># then mount the sealed shard into the repo's own query engine and ask it a
+# question &mdash; see tests/test_foundry_ontology_exit.py::
+#   test_sealed_ontology_is_queryable_through_spectra</span>
+<span class="kw">from</span> axiom_runtime.engine <span class="kw">import</span> SpectraEngine
+</pre>
+  </div>
+
+  <div class="query-card">
+    <div class="query-input">
+      <span class="query-prompt">$</span>
+      <span>axm ask sh1_3b46e8ea...50664d --key keys/publisher.pub "what links to Patient"</span>
+    </div>
+    <div class="query-result">&rarr; Encounter &rarr; Patient</div>
+  </div>
+
+  <h2 style="margin-top:56px;">Declared vs. captured &mdash; shown, not hidden.</h2>
+  <p>The sample declares 1,200 Patient instances but only 5 rows were captured in this run. Both numbers are sealed as separate claims &mdash; <code class="inline">instance_count_declared</code> and <code class="inline">instances_captured</code> &mdash; so a partial pull can never quietly pass as a complete one. All five rows below are synthetic: invented reference numbers, placeholder names.</p>
+
+  <table class="sample-table">
+    <thead>
+      <tr><th>patientRef</th><th>given name</th><th>family name</th><th>registered practice</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="ref">SYN-0000000001</td><td class="name">Ada</td><td class="name">Testcase</td><td>SYNTH GP PRACTICE A</td></tr>
+      <tr><td class="ref">SYN-0000000002</td><td class="name">Grace</td><td class="name">Placeholder</td><td>SYNTH GP PRACTICE A</td></tr>
+      <tr><td class="ref">SYN-0000000003</td><td class="name">Alan</td><td class="name">Sample</td><td>SYNTH GP PRACTICE B</td></tr>
+      <tr><td class="ref">SYN-0000000004</td><td class="name">Edith</td><td class="name">Fixture</td><td>SYNTH GP PRACTICE B</td></tr>
+      <tr><td class="ref">SYN-0000000005</td><td class="name">Mary</td><td class="name">Synthetic</td><td>SYNTH GP PRACTICE C</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:8px; font-size:12.5px; color:var(--steel-faint);">5 of 1200 declared &mdash; captured, not invented away. Not valid NHS numbers. No real person, practice, ward, or clinician is represented.</p>
+</section>
+
+<!-- SCOPE & CONSENT -->
+<section id="scope">
+  <div class="sec-label">
+    <span class="sec-num">D · 04</span>
+    <span class="sec-title">What This Does Not Cover, And Who Can Turn It On</span>
+  </div>
+  <h2>The honest map<br>of the exit.</h2>
+  <p>"Export your ontology and data" is true today, for this repository, against a synthetic sample. "Export your workflow" is not &mdash; and this table says so plainly rather than letting the graph above imply more than it proves.</p>
+
+  <table class="coverage-table">
+    <thead>
+      <tr><th>Vendor platform surface</th><th>Does this exit cover it?</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Ontology structure &mdash; object types, properties, primary keys, links, cardinalities</td><td><span class="cov-yes">YES</span> &mdash; promoted to genesis claims, queryable via Spectra</td></tr>
+      <tr><td>Object instance data</td><td><span class="cov-yes">YES</span> &mdash; sealed as verbatim content; declared vs. captured, never hidden</td></tr>
+      <tr><td>Verbatim API responses (audit trail of what was pulled)</td><td><span class="cov-yes">YES</span> &mdash; sealed byte-for-byte</td></tr>
+      <tr><td>Pipelines / transforms (code)</td><td><span class="cov-no">NO &mdash; not yet</span> &mdash; the operational moat</td></tr>
+      <tr><td>Actions / Functions</td><td><span class="cov-no">NO &mdash; not yet</span></td></tr>
+      <tr><td>Workshop / Slate applications</td><td><span class="cov-no">NO &mdash; not yet</span></td></tr>
+      <tr><td>Permission / security model</td><td><span class="cov-no">NO &mdash; deliberately not carried</span> &mdash; no vendor ACLs made portable</td></tr>
+    </tbody>
+  </table>
+
+  <h2 style="margin-top:56px;">The consent gate.</h2>
+  <p>This channel is inert by design. It carries real records only when a data controller with the lawful authority to release them decides to authorize it &mdash; never covertly, never as a quiet parallel intake of real data. That authorization would itself be a sealed, custodied record, subject to the same verification as everything else here.</p>
+  <p>In this repository the gate is honored the only honest way available without a real controller: <strong style="color:var(--white)">the data is synthetic</strong>, precisely because no such authorization exists. The channel is ready and standing. Whether it ever carries anything real is a decision for a customer with an actual tenant and the authority to make it &mdash; not a decision this demo makes for them.</p>
+
+  <p style="margin-top:32px;"><a href="index.html#exit" style="color:var(--cyan); text-decoration:none;">&larr; back to axm-core &sect;07 The Exit</a></p>
+</section>
+
+<footer>
+  <span class="footer-brand">AXM &mdash; Ontology Exit Demo</span>
+  <div class="footer-links">
+    <a href="index.html">axm-core</a>
+    <a href="https://github.com/BigBirdReturns/axm-core">GitHub</a>
+  </div>
+  <span class="footer-meta">Synthetic sample &middot; foundry-ontology-wire-shape-reconciled &middot; not run against a live tenant</span>
+</footer>
+
+<script>
+// Nav active state on scroll
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('nav a[href^="#"]');
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      navLinks.forEach(a => {
+        a.classList.toggle('active', a.getAttribute('href') === `#${id}`);
+      });
+    }
+  });
+}, { threshold: 0.25 });
+
+sections.forEach(s => observer.observe(s));
+
+// Subtle entrance animations
+const cards = document.querySelectorAll('.demo-panel, .scope-card, .query-card, .pull-req');
+const cardObs = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    if (entry.isIntersecting) {
+      entry.target.style.opacity = '0';
+      entry.target.style.transform = 'translateY(12px)';
+      entry.target.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+      setTimeout(() => {
+        entry.target.style.opacity = '1';
+        entry.target.style.transform = 'none';
+      }, 60);
+      cardObs.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1 });
+cards.forEach(c => cardObs.observe(c));
+</script>
+</body>
+</html>
