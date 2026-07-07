@@ -794,11 +794,114 @@ footer {
   .term-cursor { animation: none; opacity: 1; }
 }
 
+/* ── THE STAGE — fit-to-viewport, one-glance flow ─────── */
+.stage {
+  min-height: calc(100vh - 44px);          /* fallback */
+  min-height: calc(100dvh - 44px);         /* account for the 44px sticky nav */
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 32px 26px;
+  border-bottom: 1px solid var(--rule-strong);
+  overflow: hidden;
+}
+.stage-top {
+  display: flex;
+  align-items: center;
+  gap: 14px 26px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.stage-title {
+  font-family: var(--font-cond);
+  font-size: clamp(18px, 2.3vw, 27px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--white);
+  text-transform: uppercase;
+  line-height: 1.04;
+}
+.stage-title span { color: var(--cyan); }
+.stage .flow-play-wrap { margin: 0; }
+.stage-honesty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--amber);
+  letter-spacing: 0.01em;
+  border-left: 3px solid var(--amber);
+  padding: 3px 0 3px 12px;
+  max-width: 560px;
+}
+
+/* the three-panel flow fills the remaining stage height */
+.stage-flow {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+.stage .demo-panel { padding: 16px 18px; gap: 10px; min-height: 0; }
+.stage .hazard-bar,
+.stage .seal-bar { margin: -16px -18px 2px -18px; }
+.stage .panel-title { font-size: 18px; }
+.stage .pull-col { padding: 4px; }
+
+/* node-graphs flex to the available height (viewBox SVGs, centered) */
+.graph-wrap { flex: 1 1 auto; min-height: 0; position: relative; }
+.stage .node-graph { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* compact receipt, pinned at the base of the sovereign panel */
+.stage .receipt-card {
+  flex-shrink: 0;
+  font-size: 10.8px;
+  line-height: 1.65;
+  padding: 11px 13px;
+}
+.stage .receipt-card .rk { min-width: 78px; }
+
+/* verify flip: base state is the real result (green PASS); while the JS
+   timeline runs, it reads "verifying…" in amber, then flips to PASS as the
+   last beat. Pure class toggle — robust, no content mutation. */
+.receipt .v-pending { display: none; color: var(--amber); }
+.receipt .v-pass    { color: var(--green); }
+.receipt.verifying .v-pending { display: inline; }
+.receipt.verifying .v-pass    { display: none; }
+
+/* ── SOVEREIGN DRAW-IN (the reconstruction, on Play) ───── */
+/* Base (not playing): the sovereign graph is fully drawn and visible — so
+   reduced-motion visitors who never press Play still see the finished result.
+   On .play-flow the nodes fade+scale in in sequence and the links draw in,
+   as if the graph is being rebuilt on your side. Glow pulses < 3Hz. */
+.stage .sovereign-panel .node-graph .nd {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes node-land {
+  0%   { opacity: 0; transform: scale(0.35); filter: drop-shadow(0 0 0 rgba(57,208,216,0)); }
+  55%  { opacity: 1; transform: scale(1.18); filter: drop-shadow(0 0 7px rgba(57,208,216,0.85)); }
+  100% { opacity: 1; transform: scale(1);    filter: drop-shadow(0 0 0 rgba(57,208,216,0)); }
+}
+@keyframes draw-link {
+  from { stroke-dashoffset: 172; }
+  to   { stroke-dashoffset: 0; }
+}
+.stage-flow.play-flow .sovereign-panel .node-graph .nd-enc { animation: node-land 0.6s ease both; animation-delay: 0.15s; }
+.stage-flow.play-flow .sovereign-panel .node-graph .nd-pat { animation: node-land 0.6s ease both; animation-delay: 0.55s; }
+.stage-flow.play-flow .sovereign-panel .node-graph .nd-wrd { animation: node-land 0.6s ease both; animation-delay: 0.75s; }
+.stage-flow.play-flow .sovereign-panel .node-graph .lnk    { stroke-dasharray: 172; animation: draw-link 0.8s ease both; animation-delay: 1.0s; }
+.stage-flow.play-flow .sovereign-panel .node-graph .nd-cli { animation: node-land 0.6s ease both; animation-delay: 1.5s; }
+
 /* ── RESPONSIVE ────────────────────────────────────────── */
 @media (max-width: 980px) {
   .demo-grid { grid-template-columns: 1fr; }
   .pull-col { flex-direction: column; padding: 24px 0; }
   .pull-track { width: 100%; }
+  /* narrow: the stage may stack and scroll — desktop one-glance is the priority */
+  .stage { min-height: 0; padding: 28px 24px; }
+  .stage-flow { grid-template-rows: none; }
+  .graph-wrap { position: static; }
+  .stage .node-graph { position: static; height: 210px; }
 }
 @media (max-width: 900px) {
   .hero { padding: 48px 24px 40px; }
@@ -1003,99 +1106,43 @@ footer {
 <nav id="top-nav">
   <span class="nav-brand">AXM<span>-core</span></span>
   <a href="index.html" class="nav-home">&larr; Core</a>
-  <a href="#overview" class="active">Overview</a>
-  <a href="#demo">The Flow</a>
+  <a href="#demo" class="active">The Flow</a>
+  <a href="#overview">What You See</a>
   <a href="#artifacts">The Real Run</a>
   <a href="#scope">Scope &amp; Consent</a>
 </nav>
 
-<!-- HERO -->
-<header class="hero">
-  <div class="hero-label">AXM · Foundry Exit · Ontology Demo</div>
-  <h1>An Ontology.<em>Leaving A Silo.<br>Landing Sealed.</em></h1>
-  <p class="hero-sub">This page walks through one real run of the Ontology Exit: a small NHS-shaped ontology pulled out of a vendor data platform with the customer's own credentials, and resealed into a genesis-signed record that verifies with nothing but its own bytes and an out-of-band key.</p>
-  <div class="hero-stats">
-    <div class="stat">
-      <span class="stat-val"><span>4</span></span>
-      <span class="stat-label">Object types exited</span>
+<!-- ══════════ THE STAGE — fit-to-viewport, one-glance flow ══════════ -->
+<section id="demo" class="stage">
+  <div class="stage-top">
+    <div class="stage-title">The Exit — an ontology <span>leaving a silo</span>, sealed</div>
+    <div class="flow-play-wrap">
+      <button type="button" class="flow-play-btn" id="flow-play-btn" aria-pressed="false" aria-label="Play the flow: animate the silo-to-sovereign pull">&#9654; Play the flow</button>
     </div>
-    <div class="stat">
-      <span class="stat-val"><span>18</span></span>
-      <span class="stat-label">Typed property claims</span>
-    </div>
-    <div class="stat">
-      <span class="stat-val">detached <span>PASS</span></span>
-      <span class="stat-label">Out-of-band verify</span>
-    </div>
-  </div>
-</header>
-
-<div class="exit-banner top">
-  SYNTHETIC — NHS-shaped sample, invented data, no real patient data ever. Reconciled against Palantir's published Ontology API v2 wire shapes. NOT run against an authorized live tenant.
-</div>
-
-<!-- OVERVIEW -->
-<section id="overview">
-  <div class="sec-label">
-    <span class="sec-num">D · 01</span>
-    <span class="sec-title">Why This Demo Exists</span>
-  </div>
-  <h2>Platforms hold your<br>structure hostage.</h2>
-  <p>A CSV export gives you rows. It does not give you the object types, the typed properties, the links, the cardinalities — the ontology that makes the rows mean anything. That structure usually lives only inside the vendor's platform, reachable only through the vendor's tools, on the vendor's terms.</p>
-  <p>The Ontology Exit takes the structure out too. Below is one real, reproducible run of it against a synthetic NHS-shaped ontology, shown as a familiar node-and-link ontology graph — walled on one side, sealed and yours on the other.</p>
-
-  <div class="scope-strip">
-    <div class="scope-card">
-      <div class="scope-tag">What this covers</div>
-      <p>Ontology <strong style="color:var(--white)">structure</strong> — object types, typed properties, primary keys, links, cardinalities — and object <strong style="color:var(--white)">instance data</strong>, both promoted to signed claims and preserved byte-for-byte as verbatim API responses.</p>
-    </div>
-    <div class="scope-card">
-      <div class="scope-tag">What this does not cover</div>
-      <p>The <strong style="color:var(--white)">workflow layer</strong>: pipelines and transform code, Actions and Functions, Workshop/Slate applications, and the permission/security model. Not yet exited. Not implied here.</p>
-    </div>
-  </div>
-</section>
-
-<!-- THE FLOW -->
-<section id="demo">
-  <div class="sec-label">
-    <span class="sec-num">D · 02</span>
-    <span class="sec-title">Silo &rarr; Pull &rarr; Sovereign Record</span>
-  </div>
-  <h2>The same graph.<br>Before and after.</h2>
-  <p>Four object types, drawn as an ontology graph in the shape every enterprise-ontology tool renders. On the left it is walled inside a vendor data platform. On the right it is the identical structure, reconstructed on your side — sealed, portable, and verifiable without the vendor in the loop.</p>
-
-  <div class="exit-banner mid" style="margin-top:32px;">
-    SYNTHETIC — NHS-shaped sample, invented data, no real patient data ever. Reconciled against Palantir's published Ontology API v2 wire shapes. NOT run against an authorized live tenant. The graph below is drawn from the invented sample in this repository; no Palantir tenant, real or otherwise, was accessed to produce it.
+    <div class="stage-honesty">Synthetic NHS-shaped sample &middot; Palantir's published Ontology API v2 shape &middot; not a live tenant &middot; nothing real is moved.</div>
   </div>
 
-  <div class="flow-play-wrap">
-    <button type="button" class="flow-play-btn" id="flow-play-btn" aria-pressed="false" aria-label="Play the flow: animate the silo-to-sovereign pull">&#9654; Play the flow</button>
-  </div>
-
-  <div class="demo-grid" id="demo-grid">
+  <div class="demo-grid stage-flow" id="demo-grid">
 
     <!-- LEFT: THE SILO -->
     <div class="demo-panel silo-panel">
       <div class="hazard-bar"></div>
       <span class="panel-badge badge-locked">Locked &middot; Vendor Custody</span>
       <div class="panel-title">The Silo</div>
-      <p class="panel-sub">A generic vendor data platform &mdash; a Foundry-shaped silo. The wire shape below is Palantir's published Ontology API v2; nothing here is a claim of access to, or affiliation with, an actual Palantir tenant.</p>
-
-      <svg class="node-graph" viewBox="0 0 320 230" role="img" aria-label="Walled ontology graph: Encounter linked to Patient and Ward; Clinician isolated, unlinked in this capture">
-        <line class="lnk" x1="160" y1="55" x2="72" y2="185"/>
-        <line class="lnk" x1="160" y1="55" x2="248" y2="185"/>
-        <circle class="nd-circle" cx="160" cy="50" r="26"/>
-        <text class="nd-label" x="160" y="54" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Encounter</text>
-        <circle class="nd-circle" cx="72" cy="190" r="24"/>
-        <text class="nd-label" x="72" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Patient</text>
-        <circle class="nd-circle" cx="248" cy="190" r="24"/>
-        <text class="nd-label" x="248" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Ward</text>
-        <circle class="nd-circle nd-solo" cx="270" cy="42" r="18"/>
-        <text class="nd-label" x="270" y="45" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8">Clinician</text>
-      </svg>
-
-      <p class="panel-caption">You can <strong>see</strong> the ontology in the vendor's console. You cannot <strong>take</strong> it &mdash; not the structure, not detached, not on your own authority. <em>Clinician</em> has no captured link in this run &mdash; shown honestly, not hidden.</p>
+      <div class="graph-wrap">
+        <svg class="node-graph" viewBox="0 0 320 230" role="img" aria-label="Walled ontology graph: Encounter linked to Patient and Ward; Clinician isolated, unlinked in this capture">
+          <line class="lnk" x1="160" y1="55" x2="72" y2="185"/>
+          <line class="lnk" x1="160" y1="55" x2="248" y2="185"/>
+          <circle class="nd-circle" cx="160" cy="50" r="26"/>
+          <text class="nd-label" x="160" y="54" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Encounter</text>
+          <circle class="nd-circle" cx="72" cy="190" r="24"/>
+          <text class="nd-label" x="72" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Patient</text>
+          <circle class="nd-circle" cx="248" cy="190" r="24"/>
+          <text class="nd-label" x="248" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Ward</text>
+          <circle class="nd-circle nd-solo" cx="270" cy="42" r="18"/>
+          <text class="nd-label" x="270" y="45" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8">Clinician</text>
+        </svg>
+      </div>
     </div>
 
     <!-- MIDDLE: THE PULL -->
@@ -1115,10 +1162,7 @@ footer {
         <div class="pull-track"></div>
       </div>
 
-      <div class="pull-footnote">
-        three GETs, run with the customer's own<br>credentials, against the vendor's<br><strong style="color:var(--steel)">published</strong> Ontology API v2.<br><br>
-        no Palantir code runs in this path.
-      </div>
+      <div class="pull-footnote">customer's own credentials &middot; vendor's<br><strong style="color:var(--steel)">published</strong> Ontology API v2<br><br>no Palantir code runs in this path.</div>
     </div>
 
     <!-- RIGHT: THE SOVEREIGN RECORD -->
@@ -1126,32 +1170,26 @@ footer {
       <div class="seal-bar"></div>
       <span class="panel-badge badge-sealed">Sealed &middot; Your Custody</span>
       <div class="panel-title">The Sovereign Record</div>
-      <p class="panel-sub">The same structure, reconstructed on your side. Genesis-signed. Detached-verifiable with an out-of-band key. No Palantir, no AXM, no vendor required to hold or check it.</p>
-
-      <svg class="node-graph" viewBox="0 0 320 230" role="img" aria-label="Sealed ontology graph: Encounter linked to Patient and Ward; Clinician present as an object type, unlinked in this capture">
-        <line class="lnk" x1="160" y1="55" x2="72" y2="185"/>
-        <line class="lnk" x1="160" y1="55" x2="248" y2="185"/>
-        <circle class="nd-circle" cx="160" cy="50" r="26"/>
-        <text class="nd-label" x="160" y="54" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Encounter</text>
-        <circle class="nd-circle" cx="72" cy="190" r="24"/>
-        <text class="nd-label" x="72" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Patient</text>
-        <circle class="nd-circle" cx="248" cy="190" r="24"/>
-        <text class="nd-label" x="248" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Ward</text>
-        <circle class="nd-circle nd-solo" cx="270" cy="42" r="18"/>
-        <text class="nd-label" x="270" y="45" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8">Clinician</text>
-      </svg>
-
-      <div class="receipt-card">
-        <div><span class="rk">shard</span><span class="rv">sh1_3b46e8ea6e4a9515d5582c9d2b556d0d0a00600885d70088e6c1f167ef50664d</span></div>
-        <div><span class="rk">verify</span><span class="rv ok">detached PASS (out-of-band key)</span></div>
-        <div><span class="rk">suite</span><span class="rv">axm-hybrid1</span></div>
-        <div><span class="rk">object types</span><span class="rv">Patient, Encounter, Ward, Clinician (4)</span></div>
-        <div><span class="rk">links</span><span class="rv">Encounter&rarr;Patient, Encounter&rarr;Ward</span></div>
-        <div><span class="rk">property claims</span><span class="rv">18 typed</span></div>
-        <div><span class="rk">instances</span><span class="rv warn">declared 1200 / captured 5</span></div>
+      <div class="graph-wrap">
+        <svg class="node-graph" viewBox="0 0 320 230" role="img" aria-label="Sealed ontology graph being reconstructed on your side: Encounter linked to Patient and Ward; Clinician present as an object type, unlinked in this capture">
+          <line class="lnk" x1="160" y1="55" x2="72" y2="185"/>
+          <line class="lnk" x1="160" y1="55" x2="248" y2="185"/>
+          <g class="nd nd-enc"><circle class="nd-circle" cx="160" cy="50" r="26"/><text class="nd-label" x="160" y="54" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Encounter</text></g>
+          <g class="nd nd-pat"><circle class="nd-circle" cx="72" cy="190" r="24"/><text class="nd-label" x="72" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Patient</text></g>
+          <g class="nd nd-wrd"><circle class="nd-circle" cx="248" cy="190" r="24"/><text class="nd-label" x="248" y="194" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9">Ward</text></g>
+          <g class="nd nd-cli"><circle class="nd-circle nd-solo" cx="270" cy="42" r="18"/><text class="nd-label" x="270" y="45" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8">Clinician</text></g>
+        </svg>
       </div>
 
-      <p class="panel-caption">Unlocked. Portable. Queryable. The declared-vs-captured gap is <strong>shown</strong>, not smoothed over &mdash; a partial capture, honestly labeled.</p>
+      <div class="receipt-card receipt" id="stage-receipt">
+        <div><span class="rk">shard</span><span class="rv" title="sh1_3b46e8ea6e4a9515d5582c9d2b556d0d0a00600885d70088e6c1f167ef50664d">sh1_3b46e8ea&hellip;</span></div>
+        <div><span class="rk">verify</span><span class="rv rv-verify"><span class="v-pending">verifying&hellip;</span><span class="v-pass">detached PASS</span></span></div>
+        <div><span class="rk">suite</span><span class="rv">axm-hybrid1</span></div>
+        <div><span class="rk">types</span><span class="rv">4</span></div>
+        <div><span class="rk">links</span><span class="rv">2</span></div>
+        <div><span class="rk">props</span><span class="rv">18 typed</span></div>
+        <div><span class="rk">instances</span><span class="rv warn">declared 1200 / captured 5</span></div>
+      </div>
     </div>
 
   </div>
@@ -1160,16 +1198,33 @@ footer {
   (function() {
     var grid = document.getElementById('demo-grid');
     var btn = document.getElementById('flow-play-btn');
+    var receipt = document.getElementById('stage-receipt');
     if (!grid || !btn) { return; }
 
     function reducedMotion() {
       return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     }
 
+    // The receipt's verify row starts as "verifying…" (amber) while the draw-in
+    // timeline runs, then flips to the real "detached PASS" (green) as the last
+    // beat — a pure class toggle, timed to land after the graph reconstructs.
+    var verifyTimer = null;
+    function driveReceipt(playing) {
+      if (!receipt) { return; }
+      if (verifyTimer) { clearTimeout(verifyTimer); verifyTimer = null; }
+      if (playing) {
+        receipt.classList.add('verifying');
+        verifyTimer = setTimeout(function() { receipt.classList.remove('verifying'); }, 2100);
+      } else {
+        receipt.classList.remove('verifying');
+      }
+    }
+
     function setPlaying(playing) {
       grid.classList.toggle('play-flow', playing);
       btn.setAttribute('aria-pressed', playing ? 'true' : 'false');
       btn.innerHTML = playing ? '&#9208; Pause' : '&#9654; Play the flow';
+      driveReceipt(playing);
     }
 
     // An explicit click is consent to animate: it ALWAYS toggles the flow on,
@@ -1201,6 +1256,73 @@ footer {
     }
   })();
   </script>
+</section>
+
+<!-- ══════════ BELOW THE STAGE — the details ══════════ -->
+
+<!-- HERO -->
+<header class="hero">
+  <div class="hero-label">AXM · Foundry Exit · Ontology Demo</div>
+  <h1>An Ontology.<em>Leaving A Silo.<br>Landing Sealed.</em></h1>
+  <p class="hero-sub">This page walks through one real run of the Ontology Exit: a small NHS-shaped ontology pulled out of a vendor data platform with the customer's own credentials, and resealed into a genesis-signed record that verifies with nothing but its own bytes and an out-of-band key.</p>
+  <div class="hero-stats">
+    <div class="stat">
+      <span class="stat-val"><span>4</span></span>
+      <span class="stat-label">Object types exited</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val"><span>18</span></span>
+      <span class="stat-label">Typed property claims</span>
+    </div>
+    <div class="stat">
+      <span class="stat-val">detached <span>PASS</span></span>
+      <span class="stat-label">Out-of-band verify</span>
+    </div>
+  </div>
+</header>
+
+<div class="exit-banner top">
+  SYNTHETIC — NHS-shaped sample, invented data, no real patient data ever. Reconciled against Palantir's published Ontology API v2 wire shapes. NOT run against an authorized live tenant.
+</div>
+
+<!-- WHAT YOU'RE LOOKING AT -->
+<section id="overview">
+  <div class="sec-label">
+    <span class="sec-num">D · 01</span>
+    <span class="sec-title">What You're Looking At</span>
+  </div>
+  <h2>The same graph.<br>Before and after.</h2>
+  <p>Four object types, drawn as an ontology graph in the shape every enterprise-ontology tool renders. On the stage above, the left panel is walled inside a vendor data platform; the right panel is the identical structure, reconstructed on your side — sealed, portable, and verifiable without the vendor in the loop. Here is what each side of that stage is actually saying.</p>
+
+  <div class="scope-strip">
+    <div class="scope-card">
+      <div class="scope-tag">The Silo &mdash; locked, vendor custody</div>
+      <p>A generic vendor data platform &mdash; a Foundry-shaped silo. The wire shape is Palantir's published Ontology API v2; nothing here is a claim of access to, or affiliation with, an actual Palantir tenant. You can <strong style="color:var(--white)">see</strong> the ontology in the vendor's console. You cannot <strong style="color:var(--white)">take</strong> it &mdash; not the structure, not detached, not on your own authority. <em>Clinician</em> has no captured link in this run &mdash; shown honestly, not hidden.</p>
+    </div>
+    <div class="scope-card">
+      <div class="scope-tag">The Sovereign Record &mdash; sealed, your custody</div>
+      <p>The same structure, reconstructed on your side. Genesis-signed. Detached-verifiable with an out-of-band key. No Palantir, no AXM, no vendor required to hold or check it. Unlocked, portable, queryable &mdash; and the declared-vs-captured gap is <strong style="color:var(--white)">shown</strong>, not smoothed over: a partial capture, honestly labeled.</p>
+    </div>
+  </div>
+
+  <h2 style="margin-top:56px;">Platforms hold your<br>structure hostage.</h2>
+  <p>A CSV export gives you rows. It does not give you the object types, the typed properties, the links, the cardinalities — the ontology that makes the rows mean anything. That structure usually lives only inside the vendor's platform, reachable only through the vendor's tools, on the vendor's terms.</p>
+  <p>The Ontology Exit takes the structure out too. The stage above is one real, reproducible run of it against a synthetic NHS-shaped ontology, shown as a familiar node-and-link ontology graph — walled on one side, sealed and yours on the other.</p>
+
+  <div class="exit-banner mid" style="margin-top:32px;">
+    SYNTHETIC — NHS-shaped sample, invented data, no real patient data ever. Reconciled against Palantir's published Ontology API v2 wire shapes. NOT run against an authorized live tenant. The graph on the stage above is drawn from the invented sample in this repository; no Palantir tenant, real or otherwise, was accessed to produce it.
+  </div>
+
+  <div class="scope-strip">
+    <div class="scope-card">
+      <div class="scope-tag">What this covers</div>
+      <p>Ontology <strong style="color:var(--white)">structure</strong> — object types, typed properties, primary keys, links, cardinalities — and object <strong style="color:var(--white)">instance data</strong>, both promoted to signed claims and preserved byte-for-byte as verbatim API responses.</p>
+    </div>
+    <div class="scope-card">
+      <div class="scope-tag">What this does not cover</div>
+      <p>The <strong style="color:var(--white)">workflow layer</strong>: pipelines and transform code, Actions and Functions, Workshop/Slate applications, and the permission/security model. Not yet exited. Not implied here.</p>
+    </div>
+  </div>
 </section>
 
 <!-- THE REAL RUN -->
