@@ -1,0 +1,107 @@
+{
+  "nextPageToken": null,
+  "data": [
+    {
+      "apiName": "Aircraft",
+      "displayName": "Aircraft",
+      "description": "A physical aircraft in the fleet.",
+      "status": "ACTIVE",
+      "primaryKey": "tailNumber",
+      "rid": "ri.ontology.main.object-type.7f3a1c2e-0b44-4d9a-9e11-2c6b5a8d0f01",
+      "properties": {
+        "tailNumber": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.1a2b3c4d-0001-4000-8000-000000000001",
+          "description": "Registration / tail number."
+        },
+        "manufacturer": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.1a2b3c4d-0001-4000-8000-000000000002"
+        },
+        "seatCount": {
+          "dataType": {"type": "integer"},
+          "rid": "ri.ontology.main.property.1a2b3c4d-0001-4000-8000-000000000003"
+        },
+        "rangeKm": {
+          "dataType": {"type": "double"},
+          "rid": "ri.ontology.main.property.1a2b3c4d-0001-4000-8000-000000000004"
+        },
+        "inService": {
+          "dataType": {"type": "boolean"},
+          "rid": "ri.ontology.main.property.1a2b3c4d-0001-4000-8000-000000000005"
+        },
+        "firstFlightDate": {
+          "dataType": {"type": "date"},
+          "rid": "ri.ontology.main.property.1a2b3c4d-0001-4000-8000-000000000006"
+        }
+      }
+    },
+    {
+      "apiName": "Flight",
+      "displayName": "Flight",
+      "description": "A scheduled flight leg.",
+      "status": "ACTIVE",
+      "primaryKey": "flightId",
+      "rid": "ri.ontology.main.object-type.9c8b7a6d-5e44-4c3b-8a22-1f0e9d8c7b02",
+      "properties": {
+        "flightId": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.2b3c4d5e-0002-4000-8000-000000000001",
+          "description": "Unique flight leg id."
+        },
+        "flightNumber": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.2b3c4d5e-0002-4000-8000-000000000002"
+        },
+        "departureTime": {
+          "dataType": {"type": "timestamp"},
+          "rid": "ri.ontology.main.property.2b3c4d5e-0002-4000-8000-000000000003"
+        },
+        "passengers": {
+          "dataType": {"type": "integer"},
+          "rid": "ri.ontology.main.property.2b3c4d5e-0002-4000-8000-000000000004"
+        },
+        "distanceKm": {
+          "dataType": {"type": "double"},
+          "rid": "ri.ontology.main.property.2b3c4d5e-0002-4000-8000-000000000005"
+        },
+        "aircraftTail": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.2b3c4d5e-0002-4000-8000-000000000006",
+          "description": "Foreign key to the operating Aircraft (tailNumber)."
+        }
+      }
+    },
+    {
+      "apiName": "Airport",
+      "displayName": "Airport",
+      "description": "A civil airport.",
+      "status": "ACTIVE",
+      "primaryKey": "icaoCode",
+      "rid": "ri.ontology.main.object-type.4d3c2b1a-6f55-4b2a-9c33-0e1d2c3b4a03",
+      "properties": {
+        "icaoCode": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.3c4d5e6f-0003-4000-8000-000000000001",
+          "description": "ICAO airport code."
+        },
+        "name": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.3c4d5e6f-0003-4000-8000-000000000002"
+        },
+        "city": {
+          "dataType": {"type": "string"},
+          "rid": "ri.ontology.main.property.3c4d5e6f-0003-4000-8000-000000000003"
+        },
+        "elevationM": {
+          "dataType": {"type": "integer"},
+          "rid": "ri.ontology.main.property.3c4d5e6f-0003-4000-8000-000000000004"
+        },
+        "latitude": {
+          "dataType": {"type": "double"},
+          "rid": "ri.ontology.main.property.3c4d5e6f-0003-4000-8000-000000000005"
+        }
+      }
+    }
+  ]
+}

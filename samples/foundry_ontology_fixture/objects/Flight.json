@@ -1,0 +1,14 @@
+{
+  "nextPageToken": "eyJwYWdlIjogMX0=",
+  "totalCount": "42",
+  "data": [
+    {"__rid": "ri.ontology.main.object.flight-0001", "__primaryKey": "FL0001", "__apiName": "Flight", "flightId": "FL0001", "flightNumber": "AX100", "departureTime": "2026-06-01T08:15:00Z", "passengers": 168, "distanceKm": 1120.5, "aircraftTail": "N737AX"},
+    {"__rid": "ri.ontology.main.object.flight-0002", "__primaryKey": "FL0002", "__apiName": "Flight", "flightId": "FL0002", "flightNumber": "AX101", "departureTime": "2026-06-01T11:40:00Z", "passengers": 154, "distanceKm": 980.0, "aircraftTail": "N737AX"},
+    {"__rid": "ri.ontology.main.object.flight-0003", "__primaryKey": "FL0003", "__apiName": "Flight", "flightId": "FL0003", "flightNumber": "AX205", "departureTime": "2026-06-01T14:05:00Z", "passengers": 172, "distanceKm": 1440.2, "aircraftTail": "N320AX"},
+    {"__rid": "ri.ontology.main.object.flight-0004", "__primaryKey": "FL0004", "__apiName": "Flight", "flightId": "FL0004", "flightNumber": "AX206", "departureTime": "2026-06-01T17:30:00Z", "passengers": 149, "distanceKm": 610.7, "aircraftTail": "N320AX"},
+    {"__rid": "ri.ontology.main.object.flight-0005", "__primaryKey": "FL0005", "__apiName": "Flight", "flightId": "FL0005", "flightNumber": "AX311", "departureTime": "2026-06-02T06:50:00Z", "passengers": 181, "distanceKm": 2050.9, "aircraftTail": "N788AX"},
+    {"__rid": "ri.ontology.main.object.flight-0006", "__primaryKey": "FL0006", "__apiName": "Flight", "flightId": "FL0006", "flightNumber": "AX312", "departureTime": "2026-06-02T10:20:00Z", "passengers": 176, "distanceKm": 1875.3, "aircraftTail": "N788AX"},
+    {"__rid": "ri.ontology.main.object.flight-0007", "__primaryKey": "FL0007", "__apiName": "Flight", "flightId": "FL0007", "flightNumber": "AX420", "departureTime": "2026-06-02T13:00:00Z", "passengers": 133, "distanceKm": 540.1, "aircraftTail": "N737AX"},
+    {"__rid": "ri.ontology.main.object.flight-0008", "__primaryKey": "FL0008", "__apiName": "Flight", "flightId": "FL0008", "flightNumber": "AX421", "departureTime": "2026-06-02T16:45:00Z", "passengers": 159, "distanceKm": 1305.6, "aircraftTail": "N320AX"}
+  ]
+}

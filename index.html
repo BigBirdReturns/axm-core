@@ -843,6 +843,7 @@ footer {
   <a href="#runtime">Runtime</a>
   <a href="#xshard">Cross-Shard</a>
   <a href="#queries">Query Examples</a>
+  <a href="#exit">The Exit</a>
   <a href="#start">Quick Start</a>
 </nav>
 
@@ -870,7 +871,7 @@ footer {
     axm-core spectra "what failed last week"<br>
     axm-forge compile ./fm21-11.pdf<br>
     axm-core query --all-shards<br>
-    → DuckDB · Parquet · BLAKE3
+    → DuckDB · JSONL · BLAKE3
   </div>
 </header>
 
@@ -881,7 +882,7 @@ footer {
     <span class="sec-title">What Core Does</span>
   </div>
   <h2>Three subsystems.<br>One runtime.</h2>
-  <p>axm-core is the hub package. It neither signs shards (that's axm-genesis) nor produces them from conversations (that's a spoke). It does one thing: turns a pile of sealed Parquet shard directories into a queryable relational database, and lets you ask it questions in English.</p>
+  <p>axm-core is the hub package. It neither signs shards (that's axm-genesis) nor produces them from conversations (that's a spoke). It does one thing: turns a pile of sealed JSONL shard directories into a queryable relational database, and lets you ask it questions in English.</p>
 
   <div class="role-grid">
     <div class="role-card">
@@ -897,7 +898,7 @@ footer {
     <div class="role-card">
       <span class="role-icon">⬡</span>
       <div class="role-name">DuckDB Runtime</div>
-      <p class="role-desc">The query substrate. Mounts every shard as a glob-scanned Parquet view. Union by name. Cross-shard JOINs on episode_id and claim_id. All in memory. No separate database server. No schema migrations.</p>
+      <p class="role-desc">The query substrate. Loads every shard's canonical JSONL tables into DuckDB at mount time. Cross-shard union views by table name. Cross-shard JOINs on episode_id and claim_id. All in memory. No separate database server. No schema migrations.</p>
     </div>
   </div>
 </section>
@@ -948,7 +949,7 @@ footer {
         <div class="flow-body">
           <div class="flow-tag">Parameterized SQL</div>
           <div class="flow-name">DuckDB Execution</div>
-          <p class="flow-desc">Named parameters substituted safely. Query executes against glob-mounted Parquet views. Zero injection surface.</p>
+          <p class="flow-desc">Named parameters substituted safely. Query executes against the mounted DuckDB tables. Zero injection surface.</p>
         </div>
       </div>
       <div class="flow-step">
@@ -973,7 +974,9 @@ footer {
         <span class="code-block-title">spectra/query.py — intent router (v2 parameterized)</span>
       </div>
       <pre>
-<span class="c"># Intent routes — no raw string interpolation</span>
+<span class="c"># Mount time (not query time): every shard's canonical JSONL tables —
+# graph/claims.jsonl, graph/entities.jsonl, ext/*.jsonl — load straight
+# into DuckDB. Routes below just query the mounted tables directly.</span>
 <span class="kw">INTENT_ROUTES</span> = {
   <span class="st">"decisions"</span>: {
     <span class="st">"match"</span>: <span class="kw">lambda</span> q: <span class="st">"decision"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"decided"</span> <span class="kw">in</span> q,
@@ -989,11 +992,11 @@ footer {
     <span class="st">"match"</span>: <span class="kw">lambda</span> q: <span class="st">"fail"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"graveyard"</span> <span class="kw">in</span> q <span class="op">or</span> <span class="st">"tried"</span> <span class="kw">in</span> q,
     <span class="st">"sql"</span>: <span class="st">"""
       SELECT episode_id, problem, graveyard, solution
-      FROM read_parquet(:glob)
+      FROM engineering
       WHERE graveyard IS NOT NULL
       ORDER BY created_at DESC
     """</span>,
-    <span class="st">"params"</span>: <span class="kw">lambda</span> q: {<span class="st">"glob"</span>: <span class="st">"~/.axm/shards/*/ext/engineering&#64;1.parquet"</span>},
+    <span class="st">"params"</span>: <span class="kw">lambda</span> q: {},
   },
   <span class="c"># ... additional routes</span>
 }
@@ -1020,7 +1023,7 @@ footer {
     <div>
       <h2>Documents<br>become shards.</h2>
       <p>Forge is the document ingestion pipeline. You point it at a document. It extracts structured claim candidates at four tiers — from lossless schema lift to LLM-assisted extraction — then delegates all signing and Merkle construction to <code>compile_generic_shard</code>. Forge never reimplements the kernel.</p>
-      <p>The output is structurally identical to a chat shard. Same manifest.json. Same Parquet schema. Same verification path. Forge doesn't know it's compiling a field manual versus a legal statute versus a design document. It applies the same protocol to all of them.</p>
+      <p>The output is structurally identical to a chat shard. Same manifest.json. Same canonical JSONL tables. Same verification path. Forge doesn't know it's compiling a field manual versus a legal statute versus a design document. It applies the same protocol to all of them.</p>
     </div>
 
     <div>
@@ -1101,8 +1104,8 @@ footer {
   <div class="duck-layout">
     <div>
       <h2>Every shard.<br>One database.<br>No server.</h2>
-      <p>DuckDB runs in-process. There is no separate database server to start, configure, or migrate. When a query runs, axm-core mounts every shard directory as a glob-scanned Parquet view using <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">read_parquet(glob, union_by_name=True)</code>.</p>
-      <p>New shards become queryable the moment they're written to disk. No ingestion step. No index rebuild. The glob just picks them up.</p>
+      <p>DuckDB runs in-process. There is no separate database server to start, configure, or migrate. When a shard mounts, axm-core loads its canonical JSONL tables — <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">graph/claims.jsonl</code>, <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">graph/entities.jsonl</code>, <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">ext/*.jsonl</code> — straight into DuckDB tables, then rebuilds the cross-shard union views.</p>
+      <p>New shards become queryable the moment they're mounted. No ingestion step. No index rebuild. Just canonical JSONL parsed into DuckDB and unioned by name across every mounted shard.</p>
     </div>
 
     <div class="code-block">
@@ -1113,44 +1116,39 @@ footer {
         <span class="code-block-title">DuckDB mount pattern</span>
       </div>
       <pre>
-<span class="kw">import</span> duckdb
+<span class="kw">import</span> duckdb, json
 
 conn = duckdb.<span class="fn">connect</span>()
 
-<span class="c"># Mount all episodes across all shards</span>
+<span class="c"># Mount time: each shard's canonical JSONL tables load straight
+# into a per-shard DuckDB table. No external file format, no glob.</span>
+<span class="kw">def</span> <span class="fn">load_table</span>(view_name, jsonl_path):
+    rows = [json.<span class="fn">loads</span>(line) <span class="kw">for</span> line <span class="kw">in</span> <span class="fn">open</span>(jsonl_path)]
+    conn.<span class="fn">execute</span>(<span class="st">f"CREATE TABLE {view_name} AS SELECT * FROM rows"</span>)
+
+<span class="kw">for</span> shard <span class="kw">in</span> mounted_shards:
+    <span class="fn">load_table</span>(<span class="st">f"episodes__{shard.id}"</span>, shard.path / <span class="st">"ext/episodes&#64;1.jsonl"</span>)
+    <span class="fn">load_table</span>(<span class="st">f"engineering__{shard.id}"</span>, shard.path / <span class="st">"ext/engineering&#64;1.jsonl"</span>)
+
+<span class="c"># Cross-shard union view: bare "episodes" spans every mounted shard</span>
 conn.<span class="fn">execute</span>(<span class="st">"""
   CREATE VIEW episodes AS
-    SELECT * FROM read_parquet(
-      '~/.axm/shards/*/ext/episodes&#64;1.parquet',
-      union_by_name = true
-    )
+    SELECT * FROM episodes__shard_a
+    UNION ALL
+    SELECT * FROM episodes__shard_b
 """</span>)
 
-<span class="c"># Mount all engineering lenses</span>
-conn.<span class="fn">execute</span>(<span class="st">"""
-  CREATE VIEW engineering AS
-    SELECT * FROM read_parquet(
-      '~/.axm/shards/*/ext/engineering&#64;1.parquet',
-      union_by_name = true
-    )
-"""</span>)
-
-<span class="c"># Cross-shard join: decisions + their lineage</span>
+<span class="c"># Cross-shard join: decisions + their lineage — bare table names,</span>
+<span class="c"># no glob in sight</span>
 conn.<span class="fn">execute</span>(<span class="st">"""
   CREATE VIEW decisions AS
     SELECT d.*, l.superseded_by, l.reason
-    FROM read_parquet(
-      '~/.axm/shards/*/ext/decisions&#64;1.parquet',
-      union_by_name = true
-    ) d
-    LEFT JOIN read_parquet(
-      '~/.axm/shards/*/ext/lineage&#64;1.parquet',
-      union_by_name = true
-    ) l USING (episode_id)
+    FROM decisions d
+    LEFT JOIN lineage l USING (episode_id)
 """</span>)
 
-<span class="c"># New shards are picked up automatically on next query.</span>
-<span class="c"># No re-ingestion required.</span>
+<span class="c"># New shards mount into their own per-shard tables; the union</span>
+<span class="c"># views rebuild automatically. No re-ingestion required.</span>
 </pre>
     </div>
   </div>
@@ -1165,7 +1163,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
 
   <div class="xshard-intro">
     <h2>Every shard can<br>reference every other.</h2>
-    <p>The <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">references&#64;1.parquet</code> table in each decision shard carries pointers into other shards by shard_id and episode_id. DuckDB can resolve these at query time without a central registry.</p>
+    <p>The <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">refs</code> table — mounted from each decision shard's <code style="font-family:var(--font-mono);font-size:13px;color:var(--cyan)">ext/references&#64;1.jsonl</code> — carries pointers into other shards by shard_id and episode_id. DuckDB can resolve these at query time without a central registry.</p>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;flex-wrap:wrap;">
@@ -1174,7 +1172,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
         <div class="code-block-dot" style="background:#f85149"></div>
         <div class="code-block-dot" style="background:#d29922"></div>
         <div class="code-block-dot" style="background:#3fb950"></div>
-        <span class="code-block-title">references&#64;1.parquet — schema</span>
+        <span class="code-block-title">refs — schema (mounted from ext/references&#64;1.jsonl)</span>
       </div>
       <pre>
 <span class="c">-- One row per cross-shard link</span>
@@ -1202,10 +1200,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
   r.claim_text       <span class="kw">AS</span> supporting_claim,
   r.reference_type
 <span class="kw">FROM</span> decisions d
-<span class="kw">JOIN</span> read_parquet(
-  <span class="st">'~/.axm/shards/*/ext/references&#64;1.parquet'</span>,
-  union_by_name = <span class="kw">true</span>
-) r <span class="kw">ON</span> d.episode_id = r.episode_id
+<span class="kw">JOIN</span> refs r <span class="kw">ON</span> d.episode_id = r.episode_id
 <span class="kw">WHERE</span> r.reference_type = <span class="st">'supersedes'</span>
 <span class="kw">ORDER BY</span> d.created_at <span class="kw">DESC</span>
 </pre>
@@ -1217,7 +1212,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
       <div class="code-block-dot" style="background:#f85149"></div>
       <div class="code-block-dot" style="background:#d29922"></div>
       <div class="code-block-dot" style="background:#3fb950"></div>
-      <span class="code-block-title">lineage&#64;1.parquet — supersession chain</span>
+      <span class="code-block-title">lineage — supersession chain (mounted from ext/lineage&#64;1.jsonl)</span>
     </div>
     <pre>
 <span class="c">-- Walk the supersession chain for the Merkle format decision</span>
@@ -1331,9 +1326,63 @@ conn.<span class="fn">execute</span>(<span class="st">"""
 </section>
 
 <!-- §07 QUICK START -->
-<section id="start">
+<section id="exit">
   <div class="sec-label">
     <span class="sec-num">§07</span>
+    <span class="sec-title">The Exit</span>
+  </div>
+  <h2>Your ontology.<br>Out.<br>Working.</h2>
+  <p>Platforms don't hold your data hostage — they hold your <em>structure</em> hostage.
+    The object types, the links, the property semantics: the ontology is the part that
+    doesn't come out when you export a CSV. The Ontology Exit takes it out.</p>
+  <p>You run three GETs against your own Palantir Foundry tenant — its published
+    Ontology API v2, your credentials, never ours — save the JSON, and run one command.
+    Out the other side: a genesis-sealed shard where every object type, typed property,
+    primary key, link, and cardinality is a queryable claim, the verbatim API responses
+    are preserved byte-for-byte, and the whole record verifies <em>detached</em> — with
+    Palantir removed, with AXM removed, with everything removed except the bytes, the
+    kernel, and one out-of-band key.</p>
+
+  <div class="install-grid">
+    <div class="install-card">
+      <div class="install-phase">Exit</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># your tenant, your token, three GETs (see ONTOLOGY_EXIT.md)</span>
+<span class="kw">curl</span> .../api/v2/ontologies/<span class="pa">&lt;ont&gt;</span>/objectTypes <span class="op">&gt;</span> capture/objectTypes.json
+
+<span class="c"># one command: seal, verify detached, done</span>
+<span class="kw">python -m foundry_exit.run_ontology_exit</span> <span class="pa">capture/</span> <span class="op">--out</span> <span class="pa">exit/</span>
+<span class="ok">→ verify=PASS  object_types=3  claims=44</span>
+</pre>
+    </div>
+    <div class="install-card">
+      <div class="install-phase">Then ask it</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># the exited ontology is a working system, not an archive</span>
+<span class="kw">axm capture ontology-exit</span> <span class="op">-p</span> <span class="pa">capture=./capture</span>
+<span class="kw">axm ask</span> <span class="pa">&lt;shard&gt;</span> <span class="op">--key</span> <span class="pa">&lt;pub&gt;</span> <span class="st">"what links to Aircraft"</span>
+<span class="ok">→ rows, with a custody-verified provenance footer</span>
+</pre>
+    </div>
+  </div>
+
+  <p><b>Who needs a tested exit?</b> EU and UK financial entities under DORA must hold
+    exit strategies for critical ICT providers that are <em>tested</em>, reviewed
+    annually — inspectors ask for the exit strategy <em>with the most recent test
+    results</em>. Public bodies facing break-clause decisions need a demonstrated
+    migration path, not a recommendation. Everyone else renewing a platform contract
+    needs the credible option to leave, which only a tested exit provides. A sealed,
+    detached-verifiable exit shard <em>is</em> a test result you can hand an auditor.</p>
+  <p style="opacity:0.75;"><b>Evidence tier, stated plainly:</b> reconciled against
+    Palantir's published Ontology API v2 wire shapes and proven end-to-end against a
+    sample in that documented shape — not yet run against an authorized live tenant.
+    The first design partner's tenant completes that proof. No Palantir code runs
+    anywhere in this path.</p>
+</section>
+
+<section id="start">
+  <div class="sec-label">
+    <span class="sec-num">§08</span>
     <span class="sec-title">Quick Start</span>
   </div>
   <h2>Install.<br>Mount.<br>Query.</h2>
@@ -1378,7 +1427,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
 <span class="c"># Raw DuckDB SQL directly</span>
 <span class="kw">axm-core query</span> <span class="op">--sql</span> <span class="st">"SELECT * FROM episodes LIMIT 5"</span>
 
-<span class="c"># All shards. All parquet. In memory.</span>
+<span class="c"># All shards. One DuckDB. In memory.</span>
 </pre>
     </div>
 
@@ -1389,7 +1438,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
 <span class="c">#               BLAKE3 + ML-DSA-44 + axm-verify</span>
 
 <span class="c"># axm-core     — this package</span>
-<span class="c">#               Spectra + Forge + DuckDB runtime</span>
+<span class="c">#               Spectra + Forge + DuckDB runtime + Foundry Exit</span>
 
 <span class="c"># axm-chat     — spoke: conversation shards</span>
 <span class="c"># axm-show     — spoke: drone show telemetry</span>
@@ -1408,7 +1457,7 @@ conn.<span class="fn">execute</span>(<span class="st">"""
     <a href="https://bigbirdreturns.github.io/axm-chat/">axm-chat</a>
     <a href="https://github.com/BigBirdReturns/axm-core">GitHub</a>
   </div>
-  <span class="footer-meta">Query runtime · No LLM at query time · DuckDB + Parquet</span>
+  <span class="footer-meta">Query runtime · No LLM at query time · DuckDB + canonical JSONL</span>
 </footer>
 
 <script>
