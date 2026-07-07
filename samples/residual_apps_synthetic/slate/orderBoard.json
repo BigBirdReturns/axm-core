@@ -1,0 +1,6 @@
+{
+  "_synthetic": true,
+  "widgets": [{"id": "table1", "type": "table", "query": "flights_clean"}],
+  "variables": [{"id": "route", "type": "string"}],
+  "events": []
+}

@@ -31,7 +31,7 @@ invariant that makes long-term verification possible.
 | **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
 | **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
-| **Foundry Exit** | `foundry_exit/` | Palantir Foundry export — sealed, detached-verifiable exit bundles. **Ontology Exit** (`axm-exit`) and **Pipeline Exit** (`axm-pipeline-exit`: dataset schemas + dependency DAG). See [FIRST_HOUR.md](foundry_exit/FIRST_HOUR.md), [ONTOLOGY_EXIT.md](foundry_exit/ONTOLOGY_EXIT.md), [PIPELINE_EXIT.md](foundry_exit/PIPELINE_EXIT.md), [WORKFLOW_EXIT_MAP.md](foundry_exit/WORKFLOW_EXIT_MAP.md) |
+| **Foundry Exit** | `foundry_exit/` | Palantir Foundry export — sealed, detached-verifiable exit bundles across **all 9 planks** (`axm-exit-ship`): ontology (`axm-exit`), pipeline (`axm-pipeline-exit`), logic (`axm-logic-exit`), residual source/apps/policy (`axm-residual-exit`). 9/9 sealed, 4 full-surface. See [FIRST_HOUR.md](foundry_exit/FIRST_HOUR.md), [SHIP_OF_THESEUS.md](foundry_exit/SHIP_OF_THESEUS.md), [WORKFLOW_EXIT_MAP.md](foundry_exit/WORKFLOW_EXIT_MAP.md) |
 | **Nodal Flow** | [separate repo](https://github.com/BigBirdReturns/nodalflow) | Desktop UI (Tauri + Svelte + DuckDB) |
 
 Sub-packages (`forge/`, `spectra/`, `clarion/`) are versioned **independently** of the

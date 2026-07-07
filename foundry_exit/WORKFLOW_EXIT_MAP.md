@@ -7,14 +7,25 @@ layer, which is where a platform's real lock-in lives — honestly, surface by
 surface, so the "No — not yet" cells in the readiness table stop being a blank
 and become a route someone can pick up.*
 
-**This is mostly a map, with one crossing.** As of 2026-07-07 the **structure
-half of Layer 2 is built and proven** (`axm-pipeline-exit`, see below); every
-other surface here is described but **not** implemented. For each un-exited
-surface this document gives, from Palantir's *published documentation*, what it
-is, whether it has a published wire shape a third party could reconcile against,
-what a departing customer can actually take vs. must rebuild, and the honest
-shape an AXM exit for it would take. Treat the un-crossed rows as the design
-brief for the next frontier, not a claim that the frontier is crossed.
+**Update 2026-07-07 — every plank now seals to an artifact, at an honest tier.**
+All nine planks below produce a sealed, detached-verifiable genesis shard
+(`axm-exit-ship` assembles them into one hull). But **sealed is not sovereign**,
+and the tier states exactly what travels:
+
+- **FULL** (4): the whole surface — ontology structure/data, pipeline schemas/DAG.
+- **CONTRACT** (2): definitions + source, not the engine — actions, functions
+  (`axm-logic-exit`).
+- **SOURCE** (1): transform source verbatim, not the runtime
+  (`axm-residual-exit source`).
+- **ATTESTED** (2): what's exportable sealed + the rest honestly attested — apps
+  (`axm-residual-exit apps`) and the deliberate non-port of permissions
+  (`axm-residual-exit policy`).
+
+So "9/9 sealed · 4 full-surface" is the honest headline — never "9/9 sovereign."
+For each surface this document still gives, from Palantir's *published
+documentation*, what it is, its wire shape, what a customer can take vs. rebuild,
+and now which tier the exit reaches. The engines and runtimes remain the
+customer's to rebuild; the map and every shard say so.
 
 > **Sourcing & staleness.** Compiled 2026-07-07 from official Palantir docs
 > (`palantir.com/docs`) and named secondary sources. Palantir's docs are
@@ -95,15 +106,23 @@ the code itself. *(inference, high confidence)*
 claims (queryable through Spectra) so the *dependency graph* survives even though
 the runtime doesn't, and seals the verbatim API responses as content — the same
 seal the ontology exit uses. It is explicit on the tin that the sealed result is
-a **portable, verifiable record of the pipeline, not a runnable pipeline.** Still
-**not** built and still the customer's to do: sealing the **cloned transform
-source** as content, and re-hosting the compute (Spark/dbt/Airflow) on their own
-infrastructure. AXM makes the pipeline *auditable and portable as evidence*; it
-does not resurrect the Foundry runtime.
+a **portable, verifiable record of the pipeline, not a runnable pipeline.**
+Sealing the **cloned transform source** verbatim is now also built
+(`axm-residual-exit source`, SOURCE tier). Still the customer's to do: re-hosting
+the compute (Spark/dbt/Airflow) on their own infrastructure. AXM makes the
+pipeline *auditable and portable as evidence*; it does not resurrect the Foundry
+runtime.
 
 ---
 
-### Layer 3 — Actions, Functions & Queries (ontology logic)  ·  **partial: interfaces + source yes, engines no** 🟡
+### Layer 3 — Actions, Functions & Queries (ontology logic)  ·  **CONTRACT sealed, engines no** 🟩🔴
+
+> **Update 2026-07-07 — the contract half is built.** `axm-logic-exit` seals
+> action + query **definitions** (published Actions/Query Types wire shapes) as
+> genesis claims and function **source** verbatim, attesting on the shard that
+> the Actions engine and Functions runtime are NOT carried
+> (`tests/test_foundry_logic_exit.py`). CONTRACT tier: the interface and source
+> travel; the engines remain the customer's to rebuild.
 
 **What it is.** **Actions** are the ontology's write operations — typed
 parameters → ontology edits (create/modify/delete objects & links) landing in a
@@ -127,9 +146,9 @@ submission-criteria + rules→edits + writeback machinery. It's the governance
 logic that makes the ontology *safe to write to*, and it has no portable
 export. *(medium)*
 
-**Honest AXM exit shape (not built):** capture **action + query definitions**
-(published metadata) and **function source** (git) as sealed content + genesis
-claims, so the *interface and the intent* are preserved and verifiable. The
+**Honest AXM exit shape — BUILT (`axm-logic-exit`):** captures **action + query
+definitions** (published metadata) and **function source** (git) as sealed content
++ genesis claims, so the *interface and the intent* are preserved and verifiable. The
 submission-criteria / effect logic that has no published spec would have to be
 **re-expressed by the customer** at the destination against their own write
 path — AXM can seal the *evidence of what the action was* (parameters,
@@ -165,14 +184,13 @@ exclusively Foundry. Leaving means **rebuilding the app/AI layer on a new
 stack** — the OSDK "own your code" path is the intended durable route, not an
 export.
 
-**Honest AXM exit shape (not built):** for this layer AXM is honest that there
-is little to *seal* — no published definition to capture for Workshop/AIP. The
-defensible move is to **build forward on OSDK** (your own code against the
+**Honest AXM exit shape — BUILT as ATTESTED (`axm-residual-exit apps`):** AXM is
+honest that there is little to *seal* — no published definition for Workshop/AIP.
+So the exit seals what *does* have a documented export (Slate JSON, verbatim) and
+records an explicit **no-export attestation** for Workshop/AIP on the shard. The
+defensible forward move stays **build on OSDK** (your own code against the
 published ontology API, which the Layer-1 exit already makes portable), so the
-app layer you build is *yours from the start* and never needs exiting. Where a
-Slate JSON or a Marketplace bundle exists, AXM can seal it as verbatim evidence
-(custody + tamper-evidence), while stating plainly it is Foundry-shaped and not
-a sovereign runtime.
+app layer you build is *yours from the start* and never needs exiting.
 
 ---
 
@@ -215,16 +233,16 @@ machine.
 |---|---|---|---|---|
 | Ontology structure | **Yes** (Ontology API v2) | structure | — | ✅ shipped |
 | Instance data | **Yes** (Ontology API v2) | data + verbatim responses | — | ✅ shipped |
-| Pipeline source | git clone | algorithms | runtime, bindings, orchestration | 🟡 mapped |
+| Pipeline / transform source | git clone | algorithms | runtime, bindings, orchestration | 🔧 **SOURCE** (`axm-residual-exit source`) |
 | Pipeline (Builder) | lossy Java codegen | little | most (rewrite) | 🟡 mapped |
 | Dataset schemas / DAG | **Yes** (Datasets/Orchestration API) | schemas + DAG | — | 🟢 **proven** (`axm-pipeline-exit`) |
 | Lineage | image only | — | all | 🟡 mapped |
-| Action definitions | **Yes** (Action Types API) | interface | rules/validation/writeback engine | 🟡 mapped |
-| Function/Query source | git clone | source | runtime | 🟡 mapped |
-| Workshop apps | **None** | — | all (rebuild on OSDK) | 🔴 no export to seal |
-| Slate apps | partial JSON | logic only | data/asset wiring | 🔴 partial |
-| AIP logic/agents | **None** (curl invoke only) | — | all | 🔴 no export to seal |
-| Permission model | primitives only | — | reconstruct under own policy | ⚫ anti-goal, not carried |
+| Action definitions | **Yes** (Action Types API) | interface | rules/validation/writeback engine | 🟩 **CONTRACT** (`axm-logic-exit`) |
+| Function/Query defs + source | git clone + Query API | source + contract | runtime | 🟩 **CONTRACT** (`axm-logic-exit`) |
+| Workshop apps | **None** | — | all (rebuild on OSDK) | 📝 **ATTESTED** no-export (`axm-residual-exit apps`) |
+| Slate apps | partial JSON | logic only | data/asset wiring | 📝 **ATTESTED** Slate JSON sealed (`axm-residual-exit apps`) |
+| AIP logic/agents | **None** (curl invoke only) | — | all | 📝 **ATTESTED** no-export (`axm-residual-exit apps`) |
+| Permission model | primitives only | — | reconstruct under own policy | 📝 **ATTESTED** non-port (`axm-residual-exit policy`) |
 
 Legend: ✅ exits today · 🟡 recoverable in part, mapped here, not yet built ·
 🔴 no self-contained export exists · ⚫ deliberately not carried.

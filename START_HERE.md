@@ -17,7 +17,7 @@ out-of-band key.
 | Your goal | Clone | Then read |
 |---|---|---|
 | **Exit an ontology off Palantir Foundry** | `axm-genesis` + `axm-core` | [`foundry_exit/FIRST_HOUR.md`](foundry_exit/FIRST_HOUR.md) — clone to sealed exit in under an hour |
-| **See the whole exit as one hull** | `axm-genesis` + `axm-core` | [`foundry_exit/SHIP_OF_THESEUS.md`](foundry_exit/SHIP_OF_THESEUS.md) — `axm-exit-ship`: replace Foundry plank by plank |
+| **See the whole exit as one hull (9/9 planks)** | `axm-genesis` + `axm-core` | [`foundry_exit/SHIP_OF_THESEUS.md`](foundry_exit/SHIP_OF_THESEUS.md) — `axm-exit-ship`: all 9 planks sealed, 4 full-surface |
 | **Exit pipeline schemas + the dependency DAG** | `axm-genesis` + `axm-core` | [`foundry_exit/PIPELINE_EXIT.md`](foundry_exit/PIPELINE_EXIT.md) — `axm-pipeline-exit` |
 | **Understand what a Foundry exit does and doesn't cover** | (just read) | [`foundry_exit/WORKFLOW_EXIT_MAP.md`](foundry_exit/WORKFLOW_EXIT_MAP.md) — the frontier, surface by surface |
 | **Verify a sealed shard someone handed you** | `axm-genesis` | its README — `axm-verify shard <dir> --trusted-key <key>` |
