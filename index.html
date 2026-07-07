@@ -843,6 +843,7 @@ footer {
   <a href="#runtime">Runtime</a>
   <a href="#xshard">Cross-Shard</a>
   <a href="#queries">Query Examples</a>
+  <a href="#exit">The Exit</a>
   <a href="#start">Quick Start</a>
 </nav>
 
@@ -1331,9 +1332,63 @@ conn.<span class="fn">execute</span>(<span class="st">"""
 </section>
 
 <!-- §07 QUICK START -->
-<section id="start">
+<section id="exit">
   <div class="sec-label">
     <span class="sec-num">§07</span>
+    <span class="sec-title">The Exit</span>
+  </div>
+  <h2>Your ontology.<br>Out.<br>Working.</h2>
+  <p>Platforms don't hold your data hostage — they hold your <em>structure</em> hostage.
+    The object types, the links, the property semantics: the ontology is the part that
+    doesn't come out when you export a CSV. The Ontology Exit takes it out.</p>
+  <p>You run three GETs against your own Palantir Foundry tenant — its published
+    Ontology API v2, your credentials, never ours — save the JSON, and run one command.
+    Out the other side: a genesis-sealed shard where every object type, typed property,
+    primary key, link, and cardinality is a queryable claim, the verbatim API responses
+    are preserved byte-for-byte, and the whole record verifies <em>detached</em> — with
+    Palantir removed, with AXM removed, with everything removed except the bytes, the
+    kernel, and one out-of-band key.</p>
+
+  <div class="install-grid">
+    <div class="install-card">
+      <div class="install-phase">Exit</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># your tenant, your token, three GETs (see ONTOLOGY_EXIT.md)</span>
+<span class="kw">curl</span> .../api/v2/ontologies/<span class="pa">&lt;ont&gt;</span>/objectTypes <span class="op">&gt;</span> capture/objectTypes.json
+
+<span class="c"># one command: seal, verify detached, done</span>
+<span class="kw">python -m foundry_exit.run_ontology_exit</span> <span class="pa">capture/</span> <span class="op">--out</span> <span class="pa">exit/</span>
+<span class="ok">→ verify=PASS  object_types=3  claims=44</span>
+</pre>
+    </div>
+    <div class="install-card">
+      <div class="install-phase">Then ask it</div>
+      <pre style="font-size:12px;line-height:1.75;">
+<span class="c"># the exited ontology is a working system, not an archive</span>
+<span class="kw">axm capture ontology-exit</span> <span class="op">-p</span> <span class="pa">capture=./capture</span>
+<span class="kw">axm ask</span> <span class="pa">&lt;shard&gt;</span> <span class="op">--key</span> <span class="pa">&lt;pub&gt;</span> <span class="st">"what links to Aircraft"</span>
+<span class="ok">→ rows, with a custody-verified provenance footer</span>
+</pre>
+    </div>
+  </div>
+
+  <p><b>Who needs a tested exit?</b> EU and UK financial entities under DORA must hold
+    exit strategies for critical ICT providers that are <em>tested</em>, reviewed
+    annually — inspectors ask for the exit strategy <em>with the most recent test
+    results</em>. Public bodies facing break-clause decisions need a demonstrated
+    migration path, not a recommendation. Everyone else renewing a platform contract
+    needs the credible option to leave, which only a tested exit provides. A sealed,
+    detached-verifiable exit shard <em>is</em> a test result you can hand an auditor.</p>
+  <p style="opacity:0.75;"><b>Evidence tier, stated plainly:</b> reconciled against
+    Palantir's published Ontology API v2 wire shapes and proven end-to-end against a
+    sample in that documented shape — not yet run against an authorized live tenant.
+    The first design partner's tenant completes that proof. No Palantir code runs
+    anywhere in this path.</p>
+</section>
+
+<section id="start">
+  <div class="sec-label">
+    <span class="sec-num">§08</span>
     <span class="sec-title">Quick Start</span>
   </div>
   <h2>Install.<br>Mount.<br>Query.</h2>
