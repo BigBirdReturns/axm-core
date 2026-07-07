@@ -584,6 +584,54 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   .pull-track::before { animation: none; left: 46%; opacity: 1; }
 }
+
+/* ── FLOW PLAY TOGGLE (D·02) ───────────────────────────── */
+.flow-play-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 28px 0 4px;
+}
+.flow-play-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  background: rgba(57,208,216,0.08);
+  border: 1px solid var(--cyan-border);
+  padding: 9px 22px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.flow-play-btn:hover                { background: rgba(57,208,216,0.16); color: var(--white); }
+.flow-play-btn:focus-visible        { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.flow-play-btn[aria-pressed="true"] { background: rgba(57,208,216,0.18); color: var(--white); }
+
+/* An explicit "Play the flow" click is consent to animate: this beats the
+   reduced-motion park above no matter what — higher specificity, reinforced
+   with !important — and re-applies the original per-track stagger so the
+   three GETs still don't move in lockstep. */
+.demo-grid.play-flow .pull-track::before {
+  animation: pull-flow 2.8s linear infinite !important;
+}
+.demo-grid.play-flow .pull-req:nth-child(2) .pull-track::before { animation-delay: 0.5s !important; }
+.demo-grid.play-flow .pull-req:nth-child(3) .pull-track::before { animation-delay: 1s   !important; }
+.demo-grid.play-flow .pull-req:nth-child(4) .pull-track::before { animation-delay: 1.5s !important; }
+
+/* Arrival payoff: the sovereign side visibly RECEIVES the flow while playing.
+   Kept subtle (~0.42Hz, well under the 3Hz flash threshold). The silo stays
+   dim/steady on purpose — it is the locked source, not the thing lighting up. */
+@keyframes sov-receive {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(57,208,216,0)); }
+  50%      { filter: drop-shadow(0 0 9px rgba(57,208,216,0.55)); }
+}
+.demo-grid.play-flow .sovereign-panel .node-graph {
+  animation: sov-receive 2.4s ease-in-out infinite;
+}
+.demo-grid.play-flow .silo-panel .node-graph {
+  opacity: 0.88;
+}
 .pull-footnote {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1021,7 +1069,11 @@ footer {
     SYNTHETIC — NHS-shaped sample, invented data, no real patient data ever. Reconciled against Palantir's published Ontology API v2 wire shapes. NOT run against an authorized live tenant. The graph below is drawn from the invented sample in this repository; no Palantir tenant, real or otherwise, was accessed to produce it.
   </div>
 
-  <div class="demo-grid">
+  <div class="flow-play-wrap">
+    <button type="button" class="flow-play-btn" id="flow-play-btn" aria-pressed="false" aria-label="Play the flow: animate the silo-to-sovereign pull">&#9654; Play the flow</button>
+  </div>
+
+  <div class="demo-grid" id="demo-grid">
 
     <!-- LEFT: THE SILO -->
     <div class="demo-panel silo-panel">
@@ -1103,6 +1155,52 @@ footer {
     </div>
 
   </div>
+
+  <script>
+  (function() {
+    var grid = document.getElementById('demo-grid');
+    var btn = document.getElementById('flow-play-btn');
+    if (!grid || !btn) { return; }
+
+    function reducedMotion() {
+      return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    function setPlaying(playing) {
+      grid.classList.toggle('play-flow', playing);
+      btn.setAttribute('aria-pressed', playing ? 'true' : 'false');
+      btn.innerHTML = playing ? '&#9208; Pause' : '&#9654; Play the flow';
+    }
+
+    // An explicit click is consent to animate: it ALWAYS toggles the flow on,
+    // even under reduced-motion — the CSS override above beats the park.
+    btn.addEventListener('click', function() {
+      setPlaying(!grid.classList.contains('play-flow'));
+    });
+
+    // Auto-start only for non-reduced-motion visitors, once, when the diagram
+    // scrolls into view. Reduced-motion visitors stay parked until they click
+    // Play themselves — the button still always works for them.
+    var autoArmed = false;
+    function armAuto() {
+      if (autoArmed) { return; }
+      autoArmed = true;
+      if (!reducedMotion()) { setPlaying(true); }
+    }
+
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function(entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i].isIntersecting) { armAuto(); io.disconnect(); break; }
+        }
+      }, { threshold: 0.3 });
+      io.observe(grid);
+    } else {
+      // No IntersectionObserver (very old browser): short delay after load.
+      setTimeout(armAuto, 600);
+    }
+  })();
+  </script>
 </section>
 
 <!-- THE REAL RUN -->
