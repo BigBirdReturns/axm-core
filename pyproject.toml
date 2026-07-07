@@ -57,11 +57,6 @@ dev = [
 [project.scripts]
 axm       = "axm_core.cli:main"
 axm-forge = "axm_forge.cli.main:main"
-axm-exit  = "foundry_exit.run_ontology_exit:main"
-axm-pipeline-exit = "foundry_exit.run_pipeline_exit:main"
-axm-logic-exit = "foundry_exit.logic_exit:main"
-axm-residual-exit = "foundry_exit.residual_exit:main"
-axm-exit-ship = "foundry_exit.ship_of_theseus:main"
 
 # ── Package discovery ─────────────────────────────────────────────────────────
 # axm-core owns:
@@ -78,4 +73,4 @@ package-dir = {"" = ".", "axm_core" = "src/axm_core", "axm_forge" = "forge/axm_f
 
 [tool.setuptools.packages.find]
 where = [".", "forge", "spectra", "src"]
-include = ["axm_core*", "axm_forge*", "axiom_runtime*", "foundry_exit*"]
+include = ["axm_core*", "axm_forge*", "axiom_runtime*"]

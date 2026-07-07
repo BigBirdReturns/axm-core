@@ -16,10 +16,10 @@ out-of-band key.
 
 | Your goal | Clone | Then read |
 |---|---|---|
-| **Exit an ontology off Palantir Foundry** | `axm-genesis` + `axm-core` | [`foundry_exit/FIRST_HOUR.md`](foundry_exit/FIRST_HOUR.md) — clone to sealed exit in under an hour |
-| **See the whole exit as one hull (9/9 planks)** | `axm-genesis` + `axm-core` | [`foundry_exit/SHIP_OF_THESEUS.md`](foundry_exit/SHIP_OF_THESEUS.md) — `axm-exit-ship`: all 9 planks sealed, 4 full-surface |
-| **Exit pipeline schemas + the dependency DAG** | `axm-genesis` + `axm-core` | [`foundry_exit/PIPELINE_EXIT.md`](foundry_exit/PIPELINE_EXIT.md) — `axm-pipeline-exit` |
-| **Understand what a Foundry exit does and doesn't cover** | (just read) | [`foundry_exit/WORKFLOW_EXIT_MAP.md`](foundry_exit/WORKFLOW_EXIT_MAP.md) — the frontier, surface by surface |
+| **Exit an ontology off Palantir Foundry** | `axm-genesis` + `GhostBox` | [FIRST_HOUR.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/FIRST_HOUR.md) — clone to sealed exit in under an hour |
+| **See the whole exit as one hull (9/9 planks)** | `axm-genesis` + `GhostBox` | [SHIP_OF_THESEUS.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/SHIP_OF_THESEUS.md) — `axm-exit-ship`: all 9 planks sealed, 4 full-surface |
+| **Exit pipeline schemas + the dependency DAG** | `axm-genesis` + `GhostBox` | [PIPELINE_EXIT.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/PIPELINE_EXIT.md) — `axm-pipeline-exit` |
+| **Understand what a Foundry exit does and doesn't cover** | (just read) | [WORKFLOW_EXIT_MAP.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/WORKFLOW_EXIT_MAP.md) — the frontier, surface by surface |
 | **Verify a sealed shard someone handed you** | `axm-genesis` | its README — `axm-verify shard <dir> --trusted-key <key>` |
 | **Turn LLM chat exports into signed, queryable knowledge** | `axm-chat` | [axm-chat docs](https://bigbirdreturns.github.io/axm-chat/) |
 | **See one operator view over the whole ecosystem** | `axm-console` | its `docs/CONTINUITY.md` (the 30-year charter) |
@@ -35,9 +35,9 @@ first; it verifies any shard from any spoke with no other repo present.
   post-quantum crypto (`axm-hybrid1` = Ed25519 + ML-DSA-44). Compiled knowledge
   with provenance. *Everything below seals and verifies through this.*
 - **axm-core** — the orchestration hub: the `axm` CLI host, **Forge** (document
-  ingestion), **Spectra** (DuckDB query engine), and the **Foundry / Ontology
-  Exit** (`foundry_exit/`, the `axm-exit` command). *If a thing is "the exit,"
-  it lives here.*
+  ingestion), **Spectra** (DuckDB query engine), and the `axm` CLI host. *The
+  Foundry exit used to live here; it now lives on the **GhostBox** spoke, which
+  depends on core only for Spectra query.*
 - **axm-console** — one seat over the ecosystem. The operator's console across
   all the spokes; home of the **CONTINUITY charter**, the 10 invariants meant to
   hold for 20–30 years.
@@ -45,8 +45,8 @@ first; it verifies any shard from any spoke with no other repo present.
 **The spokes — each proves one surface, in its own repo**
 - **axm-chat** — LLM conversation exports → cryptographically signed, queryable
   shards; every claim traces to a byte range in the source; verifies offline.
-- **GhostBox** — an intelligence stack for semantic tension analysis, with Screen
-  Ghost photonic intake.
+- **GhostBox** — the intelligence + observation spoke (semantic tension analysis, Screen
+  Ghost photonic intake). **Home of the Palantir exit** (`axm-exit-ship`, 9/9 planks) — it watches the incumbent and stages the switch.
 - **ScreenGhost** — autonomous UI control + state observation. Watches any
   screen, understands it, acts. No cloud, no API.
 - **axm-embodied** — the physical-liability spoke: real-world events and

@@ -52,12 +52,12 @@ Orchestration tooling. Declares `axm-genesis` as a pinned dependency and re-expo
 | **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
 | **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
-| **Foundry Exit** | `foundry_exit/` | Palantir Foundry export + Ontology Exit — sealed, detached-verifiable exit bundles |
+| **Foundry Exit** | moved to [GhostBox](https://github.com/BigBirdReturns/GhostBox) | Palantir exit (ontology/pipeline/logic/residual, `axm-exit-ship`) — now on the GhostBox spoke; depends on core only for Spectra query |
 | **Nodal Flow** | separate repo | Desktop UI (Tauri + Svelte + DuckDB) — not in this repo |
 
 **Key constraint:** Forge, Spectra, and Clarion each have their own `pyproject.toml`. Install them separately if needed. The root `pip install axm-core` exposes only the registry package and the transitive genesis dependency.
 
-**Key constraint:** `foundry_exit/` is deliberately **not** in `[tool.setuptools.packages.find]` (which discovers only `axm_core*`, `axm_forge*`, `axiom_runtime*`) and has no `axm.spokes` entry point yet. It isn't installed by `pip install -e .` — it runs from a source checkout via `python -m foundry_exit.*` (see `foundry_exit/README.md`).
+**Note:** the Foundry exit was extracted to the GhostBox spoke (2026-07). Core no longer packages `foundry_exit`; `[tool.setuptools.packages.find]` discovers only `axm_core*`, `axm_forge*`, `axiom_runtime*`. GhostBox depends on core for the Spectra query proof — the correct spoke → hub direction.
 
 ```bash
 pip install -e .          # axm-core root + axm-genesis

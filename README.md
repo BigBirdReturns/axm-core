@@ -2,7 +2,7 @@
 
 > **New here?** Read **[START_HERE.md](START_HERE.md)** — the whole ecosystem in
 > one page, and which repo to clone for your goal. Exiting Foundry? Jump to
-> **[foundry_exit/FIRST_HOUR.md](foundry_exit/FIRST_HOUR.md)**.
+> **[FIRST_HOUR.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/FIRST_HOUR.md)** (now on the GhostBox spoke).
 
 The orchestration hub of the AXM ecosystem. Sits between the cryptographic kernel (axm-genesis) and domain spokes (axm-embodied and others).
 
@@ -31,7 +31,7 @@ invariant that makes long-term verification possible.
 | **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
 | **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
-| **Foundry Exit** | `foundry_exit/` | Palantir Foundry export — sealed, detached-verifiable exit bundles across **all 9 planks** (`axm-exit-ship`): ontology (`axm-exit`), pipeline (`axm-pipeline-exit`), logic (`axm-logic-exit`), residual source/apps/policy (`axm-residual-exit`). 9/9 sealed, 4 full-surface. See [FIRST_HOUR.md](foundry_exit/FIRST_HOUR.md), [SHIP_OF_THESEUS.md](foundry_exit/SHIP_OF_THESEUS.md), [WORKFLOW_EXIT_MAP.md](foundry_exit/WORKFLOW_EXIT_MAP.md) |
+| **Foundry Exit** | moved to **[GhostBox](https://github.com/BigBirdReturns/GhostBox)** | The Palantir exit (ontology/pipeline/logic/residual, `axm-exit-ship`, 9/9 planks) now lives on the GhostBox spoke — it depends on core only for Spectra query. See [FIRST_HOUR.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/FIRST_HOUR.md), [SHIP_OF_THESEUS.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/SHIP_OF_THESEUS.md), [WORKFLOW_EXIT_MAP.md](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/WORKFLOW_EXIT_MAP.md) |
 | **Nodal Flow** | [separate repo](https://github.com/BigBirdReturns/nodalflow) | Desktop UI (Tauri + Svelte + DuckDB) |
 
 Sub-packages (`forge/`, `spectra/`, `clarion/`) are versioned **independently** of the
@@ -165,7 +165,7 @@ See `INVARIANTS.md` for absolute constraints on all changes.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the hub is put together |
 | [forge/README.md](forge/README.md) | Document extraction pipeline |
 | [spectra/README.md](spectra/README.md) | Runtime query engine |
-| [foundry_exit/README.md](foundry_exit/README.md) | Foundry exit + Ontology Exit — intake, seal, verify |
+| [GhostBox foundry_exit/](https://github.com/BigBirdReturns/GhostBox/blob/main/foundry_exit/README.md) | Foundry exit (moved to the GhostBox spoke) — intake, seal, verify |
 | `forge_run.py` | Documents → signed shard pipeline (run it: see "Creating a Shard") |
 | `integration_test.py` | End-to-end proof: forge → genesis → verify → spectra (clarion leg skips without graphkdf) |
 
