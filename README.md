@@ -14,6 +14,7 @@ axm-genesis  ←  axm-core  ←  spokes
 | [axm-genesis](https://github.com/BigBirdReturns/axm-genesis) | The frozen cryptographic kernel — compiles and verifies signed knowledge shards | [site](https://bigbirdreturns.github.io/axm-genesis/) |
 | [axm-core](https://github.com/BigBirdReturns/axm-core) | The runtime — Spectra query engine, Forge extraction, spoke host | [site](https://bigbirdreturns.github.io/axm-core/) |
 | [axm-chat](https://github.com/BigBirdReturns/axm-chat) | The first spoke — turns conversation exports into verified memory | [site](https://bigbirdreturns.github.io/axm-chat/) |
+| [axm-embodied](https://github.com/BigBirdReturns/axm-embodied) | The physical liability spoke — turns frame capture into verified `physical_capture` memory | — |
 
 Genesis compiles and signs; everything else reads. That boundary is the
 invariant that makes long-term verification possible.
@@ -26,6 +27,7 @@ invariant that makes long-term verification possible.
 | **Forge** | `forge/` | Document extraction pipeline (tier 0/1 regex + tier 3 LLM) |
 | **Spectra** | `spectra/` | Runtime query engine (DuckDB + SQL gate) |
 | **Clarion** | `clarion/` | Topology-bound encryption (GraphKDF) |
+| **Foundry Exit** | `foundry_exit/` | Palantir Foundry export + Ontology Exit — sealed, detached-verifiable exit bundles (not yet packaged; see foundry_exit/README.md) |
 | **Nodal Flow** | [separate repo](https://github.com/BigBirdReturns/nodalflow) | Desktop UI (Tauri + Svelte + DuckDB) |
 
 Sub-packages (`forge/`, `spectra/`, `clarion/`) are versioned **independently** of the
@@ -159,6 +161,7 @@ See `INVARIANTS.md` for absolute constraints on all changes.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the hub is put together |
 | [forge/README.md](forge/README.md) | Document extraction pipeline |
 | [spectra/README.md](spectra/README.md) | Runtime query engine |
+| [foundry_exit/README.md](foundry_exit/README.md) | Foundry exit + Ontology Exit — intake, seal, verify |
 | `forge_run.py` | Documents → signed shard pipeline (run it: see "Creating a Shard") |
 | `integration_test.py` | End-to-end proof: forge → genesis → verify → spectra (clarion leg skips without graphkdf) |
 
