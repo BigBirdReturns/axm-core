@@ -1,0 +1,7 @@
+{
+  "apps": [
+    {"name": "orderBoard", "kind": "slate", "exportFile": "slate/orderBoard.json"},
+    {"name": "opsCommand", "kind": "workshop"},
+    {"name": "delayCopilot", "kind": "aip"}
+  ]
+}

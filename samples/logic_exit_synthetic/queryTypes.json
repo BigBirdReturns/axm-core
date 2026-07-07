@@ -1,0 +1,9 @@
+{
+  "data": [
+    {
+      "apiName": "avgDelayByRoute",
+      "output": {"dataType": {"type": "double"}},
+      "parameters": {"route": {"dataType": {"type": "string"}}}
+    }
+  ]
+}

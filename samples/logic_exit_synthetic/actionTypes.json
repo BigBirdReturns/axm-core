@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "apiName": "createFlightDelay",
+      "status": "ACTIVE",
+      "parameters": {
+        "flightId": {"dataType": {"type": "string"}},
+        "delayMinutes": {"dataType": {"type": "integer"}},
+        "reason": {"dataType": {"type": "string"}}
+      }
+    },
+    {
+      "apiName": "markFlightArrived",
+      "status": "ACTIVE",
+      "parameters": {
+        "flightId": {"dataType": {"type": "string"}},
+        "arrivalTime": {"dataType": {"type": "timestamp"}}
+      }
+    }
+  ]
+}

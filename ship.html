@@ -47,23 +47,23 @@
   .plank .surface{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
   .plank .note{font-size:12.5px;color:var(--dim)}
   .chip{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:4px 9px;border-radius:20px;white-space:nowrap;border:1px solid}
-  .chip.sovereign{color:var(--green);border-color:color-mix(in srgb,var(--green) 55%,transparent);background:color-mix(in srgb,var(--green) 12%,transparent)}
-  .chip.rebuild{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 55%,transparent);background:color-mix(in srgb,var(--amber) 10%,transparent)}
-  .chip.mapped{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 35%,transparent);opacity:.75}
-  .chip.noexport{color:var(--red);border-color:color-mix(in srgb,var(--red) 50%,transparent);background:color-mix(in srgb,var(--red) 9%,transparent)}
-  .chip.antigoal{color:var(--grey);border-color:color-mix(in srgb,var(--grey) 45%,transparent)}
-  /* sovereign planks in their FOUNDRY (pre-swap) state while a run is playing */
-  .hull.playing .plank[data-sov="1"]:not(.swapped){background:transparent}
-  .hull.playing .plank[data-sov="1"]:not(.swapped) .surface{color:var(--faint)}
-  .hull.playing .plank[data-sov="1"]:not(.swapped) .chip{color:var(--faint);border-color:var(--rule2);background:transparent}
-  .hull.playing .plank[data-sov="1"]:not(.swapped) .chip::before{content:"foundry";}
-  .hull.playing .plank[data-sov="1"]:not(.swapped) .chip .lab{display:none}
+  .chip.full{color:var(--green);border-color:color-mix(in srgb,var(--green) 55%,transparent);background:color-mix(in srgb,var(--green) 12%,transparent)}
+  .chip.contract{color:var(--cyan);border-color:color-mix(in srgb,var(--cyan) 55%,transparent);background:color-mix(in srgb,var(--cyan) 10%,transparent)}
+  .chip.source{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 55%,transparent);background:color-mix(in srgb,var(--amber) 10%,transparent)}
+  .chip.attested{color:var(--grey);border-color:color-mix(in srgb,var(--grey) 50%,transparent)}
+  /* every plank in its FOUNDRY (pre-swap) state while a run is playing */
+  .hull.playing .plank[data-seal="1"]:not(.swapped){background:transparent}
+  .hull.playing .plank[data-seal="1"]:not(.swapped) .surface{color:var(--faint)}
+  .hull.playing .plank[data-seal="1"]:not(.swapped) .chip{color:var(--faint);border-color:var(--rule2);background:transparent}
+  .hull.playing .plank[data-seal="1"]:not(.swapped) .chip::before{content:"foundry";}
+  .hull.playing .plank[data-seal="1"]:not(.swapped) .chip .lab{display:none}
+  .hull.playing .plank[data-seal="1"]:not(.swapped) .shardstamp{opacity:0}
   /* the swap sweep */
-  .plank[data-sov="1"].swapping::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,var(--cyan-glow),transparent);animation:sweep .55s ease}
-  .plank[data-sov="1"].swapped{background:color-mix(in srgb,var(--cyan) 7%,transparent)}
+  .plank[data-seal="1"].swapping::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,var(--cyan-glow),transparent);animation:sweep .5s ease}
+  .plank[data-seal="1"].swapped{background:color-mix(in srgb,var(--cyan) 6%,transparent)}
   @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
   .shardstamp{font-family:var(--mono);font-size:10px;color:var(--cyan);opacity:0;transition:opacity .3s}
-  .plank[data-sov="1"].swapped .shardstamp{opacity:.85}
+  .plank[data-seal="1"].swapped .shardstamp{opacity:.85}
 
   .legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin:16px 0;font-family:var(--mono);font-size:11px;color:var(--dim)}
   .legend b{font-weight:500}
@@ -91,11 +91,11 @@
   <header>
     <div class="kicker">AXM · Foundry Exit · the whole hull</div>
     <h1>Replace the ship,<br><em>one plank at a time.</em></h1>
-    <p class="lede">You don't leave Foundry in one move. You swap it plank by plank — the ontology, its data, the pipeline schemas, the dependency DAG — each for a sovereign, sealed, detached-verifiable equivalent. The vessel keeps sailing the whole time. This is the hull today: four planks already yours, and an honest account of the rest.</p>
+    <p class="lede">You don't leave Foundry in one move. You swap it plank by plank — the ontology, its data, the pipeline schemas, the dependency DAG — each for a sovereign, sealed, detached-verifiable equivalent. The vessel keeps sailing the whole time. This is the hull today: all nine planks sealed to a verifiable artifact — four carrying the full surface, the rest carrying exactly what can be carried, each labeled with which.</p>
 
     <div class="coverage">
-      <span class="cov-num" id="cov-num">4 / 9</span>
-      <span class="cov-lbl">planks sovereign &amp; sealed today · the rest, stated plainly below</span>
+      <span class="cov-num" id="cov-num">9 / 9</span>
+      <span class="cov-lbl">planks sealed &middot; <b style="color:var(--cyan)">4 full-surface</b>, the rest carrying exactly what can be carried &mdash; never &ldquo;9/9 sovereign&rdquo;</span>
       <button class="btn" id="play" aria-pressed="false">▶ Replace the planks</button>
     </div>
   </header>
@@ -103,16 +103,15 @@
   <div class="hull" id="hull"></div>
 
   <div class="legend">
-    <span><b style="color:var(--green)">✅ sovereign</b> — a tested exit seals it</span>
-    <span><b style="color:var(--amber)">🔧 you rebuild</b> — no export can exist</span>
-    <span><b style="color:var(--amber);opacity:.75">🟡 mapped</b> — designed, not built</span>
-    <span><b style="color:var(--red)">🔴 rebuild forward</b> — no export; own your code</span>
-    <span><b style="color:var(--grey)">⚫ not carried</b> — by design</span>
+    <span><b style="color:var(--green)">✅ FULL</b> — whole surface travels</span>
+    <span><b style="color:var(--cyan)">🟩 CONTRACT</b> — defs + source; not the engine</span>
+    <span><b style="color:var(--amber)">🔧 SOURCE</b> — source verbatim; runtime rebuilt</span>
+    <span><b style="color:var(--grey)">📝 ATTESTED</b> — exportable sealed; rest attested</span>
   </div>
 
-  <div class="honesty">The four swapped planks hold the load — your <b>meaning</b> (ontology), your <b>data</b>, and its <b>shape and flow</b> (schemas + DAG). The runtime and app planks have <b>no export that can exist</b>; you rebuild them on your terms. The permission plank is the one you must <b>not</b> carry — porting a vendor's who-sees-what graph is porting the surveillance, not escaping it. Nothing here is run against a live tenant; the sealed child shards are synthetic samples.</div>
+  <div class="honesty">All nine planks now seal to a verifiable artifact — but <b>sealed is not sovereign</b>. The four FULL planks hold the load: your <b>meaning</b> (ontology), <b>data</b>, and its <b>shape and flow</b> (schemas + DAG). CONTRACT planks carry definitions + source, not the engines. The SOURCE plank carries your transform code, not the runtime — no export of a runtime can exist. The ATTESTED planks seal what's exportable and honestly attest the rest; the permission plank is sealed as a <b>deliberate non-port</b> — porting a vendor's who-sees-what graph is porting the surveillance, not escaping it. Nothing here is run against a live tenant; the child shards are synthetic samples.</div>
 
-  <div class="shardline">ship manifest: <b id="ship-shard">sh1_1148091ea29627de9d38ddc6c5aae042924affee92f89a4f5e8f72802f681de7</b> · verify <b>PASS</b> (detached, out-of-band key)</div>
+  <div class="shardline">ship manifest: <b id="ship-shard">sh1_4c06f47e13ebe764fa5d7738c6e469a75f79575f12815ef4b806680cda9ef4b8</b> · verify <b>PASS</b> (detached, out-of-band key) · 9/9 planks sealed</div>
 
   <section class="prose">
     <h2>The ship still floats before it's finished.</h2>
@@ -126,27 +125,27 @@
 <script>
 (function(){
   var PLANKS = [
-    {surface:"Ontology structure",   note:"object types, properties, keys, links → genesis claims · axm-exit",           cls:"sovereign", lab:"sovereign", sov:1, shard:"sh1_f8e0728f…"},
-    {surface:"Ontology data",        note:"instance data + verbatim API responses → sealed content · declared/captured",  cls:"sovereign", lab:"sovereign", sov:1, shard:"sh1_f8e0728f…"},
-    {surface:"Dataset schemas",      note:"typed columns → genesis claims · axm-pipeline-exit",                            cls:"sovereign", lab:"sovereign", sov:1, shard:"sh1_46974522…"},
-    {surface:"Dependency DAG",       note:"dataset feeds dataset + provenance → Spectra-queryable",                        cls:"sovereign", lab:"sovereign", sov:1, shard:"sh1_46974522…"},
-    {surface:"Transform runtime",    note:"transforms framework, Spark, incremental — rebuilt on your infra (Spark/dbt/Airflow)", cls:"rebuild",  lab:"you rebuild", sov:0},
-    {surface:"Actions engine",       note:"writeback, submission criteria — definitions via published API; engine rebuilt",cls:"mapped",   lab:"mapped",    sov:0},
-    {surface:"Functions / Queries",  note:"server-side logic — source git-cloneable; runtime rebuilt off-platform",        cls:"mapped",   lab:"mapped",    sov:0},
-    {surface:"Apps — Workshop / AIP",note:"UI, agents — no published export; rebuild forward on OSDK, own your code",      cls:"noexport", lab:"rebuild fwd", sov:0},
-    {surface:"Permission model",     note:"markings, PBAC, ACLs — reconstructed under your OWN policy, never ported",      cls:"antigoal", lab:"not carried", sov:0}
+    {surface:"Ontology structure",   note:"object types, properties, keys, links → genesis claims · axm-exit",           cls:"full",     lab:"FULL",     shard:"sh1_f8e0728f…"},
+    {surface:"Ontology data",        note:"instance data + verbatim API responses → sealed content · declared/captured",  cls:"full",     lab:"FULL",     shard:"sh1_f8e0728f…"},
+    {surface:"Dataset schemas",      note:"typed columns → genesis claims · axm-pipeline-exit",                            cls:"full",     lab:"FULL",     shard:"sh1_46974522…"},
+    {surface:"Dependency DAG",       note:"dataset feeds dataset + provenance → Spectra-queryable",                        cls:"full",     lab:"FULL",     shard:"sh1_46974522…"},
+    {surface:"Actions",              note:"typed params → definitions sealed · axm-logic-exit; engine rebuilt",           cls:"contract", lab:"CONTRACT", shard:"sh1_e7453a6c…"},
+    {surface:"Functions / Queries",  note:"query defs + function source sealed · axm-logic-exit; runtime rebuilt",         cls:"contract", lab:"CONTRACT", shard:"sh1_e7453a6c…"},
+    {surface:"Transform source",     note:"transform code sealed verbatim · axm-residual-exit source; runtime rebuilt",   cls:"source",   lab:"SOURCE",   shard:"sh1_c0d96ded…"},
+    {surface:"Apps — Workshop/Slate/AIP", note:"Slate JSON sealed; Workshop/AIP no-export attested · axm-residual-exit apps", cls:"attested", lab:"ATTESTED", shard:"sh1_c744f700…"},
+    {surface:"Permission model",     note:"deliberate non-port attestation · axm-residual-exit policy; your own policy",  cls:"attested", lab:"ATTESTED", shard:"sh1_78b5e9f4…"}
   ];
   var hull = document.getElementById('hull');
   PLANKS.forEach(function(p){
     var row = document.createElement('div');
     row.className = 'plank';
-    row.setAttribute('data-sov', p.sov);
-    if(p.sov) row.classList.add('swapped'); // base state = finished/honest hull
+    row.setAttribute('data-seal', '1');
+    row.classList.add('swapped'); // base state = finished/honest hull (all 9 sealed)
     row.innerHTML =
       '<span class="surface">'+p.surface+'</span>' +
       '<span class="note">'+p.note+'</span>' +
       '<span class="chip '+p.cls+'"><span class="lab">'+p.lab+'</span></span>' +
-      (p.sov ? '<span class="shardstamp">'+p.shard+' ✓</span>' : '');
+      '<span class="shardstamp">'+p.shard+' ✓</span>';
     hull.appendChild(row);
   });
 
@@ -157,20 +156,21 @@
 
   function play(){
     clearTimers();
-    var sov = Array.prototype.slice.call(hull.querySelectorAll('.plank[data-sov="1"]'));
+    var planks = Array.prototype.slice.call(hull.querySelectorAll('.plank[data-seal="1"]'));
     hull.classList.add('playing');
-    sov.forEach(function(r){ r.classList.remove('swapped','swapping'); });
+    planks.forEach(function(r){ r.classList.remove('swapped','swapping'); });
     btn.setAttribute('aria-pressed','true');
-    sov.forEach(function(r, i){
+    var STEP = 380;
+    planks.forEach(function(r, i){
       timers.push(setTimeout(function(){
         r.classList.add('swapping');
-        timers.push(setTimeout(function(){ r.classList.remove('swapping'); r.classList.add('swapped'); }, 520));
-      }, 350 + i*620));
+        timers.push(setTimeout(function(){ r.classList.remove('swapping'); r.classList.add('swapped'); }, 480));
+      }, 300 + i*STEP));
     });
     // when all swapped, drop the playing state (back to the honest resting hull)
     timers.push(setTimeout(function(){
       hull.classList.remove('playing'); btn.setAttribute('aria-pressed','false');
-    }, 350 + sov.length*620 + 600));
+    }, 300 + planks.length*STEP + 500));
   }
   btn.addEventListener('click', play);
   // An explicit click always plays. We never autoplay-freeze: the base state is
