@@ -1286,23 +1286,42 @@ instances_captured           <span class="t-warn">5</span>   (<span class="t-war
       screen.appendChild(idle);
     }
 
-    function startReplay() {
+    // Auto-play fires when the terminal SCROLLS INTO VIEW — not on page load —
+    // so the animation happens while you are actually looking at it, instead of
+    // finishing seconds before you scroll down to reach it. Respects
+    // reduced-motion on this auto path (renders the full transcript, still).
+    function startAuto() {
       runToken++;
-      if (reducedMotion()) {
-        renderStatic();
-        return;
-      }
+      if (reducedMotion()) { renderStatic(); return; }
       playSession(runToken);
     }
 
-    if (btn) { btn.addEventListener('click', startReplay); }
+    // An explicit REPLAY click is consent to animate: it ALWAYS plays, even
+    // under reduced-motion — you asked for movement by clicking.
+    function startManual() {
+      runToken++;
+      playSession(runToken);
+    }
 
-    // Play on load. Reduced-motion users get the complete transcript instantly,
-    // with no animation and no timers.
-    if (reducedMotion()) {
-      renderStatic();
+    if (btn) { btn.addEventListener('click', startManual); }
+
+    var autoPlayed = false;
+    function armAuto() {
+      if (autoPlayed) { return; }
+      autoPlayed = true;
+      startAuto();
+    }
+
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function(entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i].isIntersecting) { armAuto(); io.disconnect(); break; }
+        }
+      }, { threshold: 0.35 });
+      io.observe(screen);
     } else {
-      setTimeout(startReplay, 450);
+      // No IntersectionObserver (very old browser): short delay after load.
+      setTimeout(armAuto, 600);
     }
   })();
   </script>
