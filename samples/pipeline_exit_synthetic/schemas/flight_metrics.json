@@ -1,8 +1,0 @@
-{
-  "branchName": "master",
-  "fieldSchemaList": [
-    {"name": "route", "type": "STRING"},
-    {"name": "flightCount", "type": "LONG"},
-    {"name": "avgDelayMinutes", "type": "DOUBLE"}
-  ]
-}

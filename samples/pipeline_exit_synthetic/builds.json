@@ -1,6 +1,0 @@
-{
-  "data": [
-    {"rid": "ri.foundry.main.build.5ynth-bclean", "name": "build_flights_clean", "scheduleRid": "ri.foundry.main.schedule.5ynth-nightly"},
-    {"rid": "ri.foundry.main.build.5ynth-bmetrics", "name": "build_flight_metrics", "scheduleRid": "ri.foundry.main.schedule.5ynth-nightly"}
-  ]
-}
