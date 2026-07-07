@@ -1,0 +1,8 @@
+{
+  "data": [
+    {"rid": "ri.foundry.main.dataset.5ynth-raw-flights", "name": "raw_flights", "parentFolderRid": "ri.foundry.main.folder.5ynth-ingest"},
+    {"rid": "ri.foundry.main.dataset.5ynth-airport-ref", "name": "airport_ref", "parentFolderRid": "ri.foundry.main.folder.5ynth-ref"},
+    {"rid": "ri.foundry.main.dataset.5ynth-flights-clean", "name": "flights_clean", "parentFolderRid": "ri.foundry.main.folder.5ynth-clean"},
+    {"rid": "ri.foundry.main.dataset.5ynth-flight-metrics", "name": "flight_metrics", "parentFolderRid": "ri.foundry.main.folder.5ynth-marts"}
+  ]
+}

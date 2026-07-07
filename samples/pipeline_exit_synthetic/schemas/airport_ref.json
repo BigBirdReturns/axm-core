@@ -1,0 +1,8 @@
+{
+  "branchName": "master",
+  "fieldSchemaList": [
+    {"name": "airportCode", "type": "STRING"},
+    {"name": "airportName", "type": "STRING"},
+    {"name": "timezone", "type": "STRING"}
+  ]
+}

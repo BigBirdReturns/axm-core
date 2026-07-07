@@ -7,13 +7,14 @@ layer, which is where a platform's real lock-in lives — honestly, surface by
 surface, so the "No — not yet" cells in the readiness table stop being a blank
 and become a route someone can pick up.*
 
-**This is a map, not a shipped feature.** Nothing here is implemented in this
-repository. It describes, from Palantir's *published documentation*, what each
-un-exited Foundry surface is, whether it has a published wire shape a third
-party could reconcile against, what a departing customer can actually take vs.
-must rebuild, and the honest shape an AXM exit for it would take. Treat it as
-the design brief for the next frontier, not a claim that the frontier is
-crossed.
+**This is mostly a map, with one crossing.** As of 2026-07-07 the **structure
+half of Layer 2 is built and proven** (`axm-pipeline-exit`, see below); every
+other surface here is described but **not** implemented. For each un-exited
+surface this document gives, from Palantir's *published documentation*, what it
+is, whether it has a published wire shape a third party could reconcile against,
+what a departing customer can actually take vs. must rebuild, and the honest
+shape an AXM exit for it would take. Treat the un-crossed rows as the design
+brief for the next frontier, not a claim that the frontier is crossed.
 
 > **Sourcing & staleness.** Compiled 2026-07-07 from official Palantir docs
 > (`palantir.com/docs`) and named secondary sources. Palantir's docs are
@@ -54,7 +55,17 @@ on.
 
 ---
 
-### Layer 2 — Pipelines & data transforms  ·  **partial: source yes, runtime no** 🟡
+### Layer 2 — Pipelines & data transforms  ·  **structure PROVEN, runtime no** 🟢🔴
+
+> **Update 2026-07-07 — the structure half of this layer is now built and
+> proven.** [`PIPELINE_EXIT.md`](PIPELINE_EXIT.md) ships `axm-pipeline-exit`: it
+> consumes the published Datasets + Orchestration API v2 wire shapes and seals
+> the **dataset schemas + the dependency DAG + build/schedule provenance** into a
+> genesis shard, queryable through Spectra ("what feeds `flight_metrics`?"),
+> detached-verifiable, proven end-to-end on a synthetic sample
+> (`tests/test_foundry_pipeline_exit.py`, incl. the Spectra query test). What
+> below is still **not** carried is the **runtime** — that half of this row
+> remains 🔴, exactly as described.
 
 **What it is.** Three authoring surfaces: **Pipeline Builder** (low-code,
 graph/form UI — logic stored as pipeline config, not source files),
@@ -78,15 +89,17 @@ Java/SQL/R, `@transform` / `@transform_df` / `@incremental` decorators with
 incremental/lineage fabric — the framework the code is written *against*, not
 the code itself. *(inference, high confidence)*
 
-**Honest AXM exit shape (not built):** seal the **cloned transform source** as
-verbatim content (custody, provenance, tamper-evidence — the same seal the
-ontology exit uses); promote **dataset schemas + the build/schedule DAG** to
-genesis claims (queryable through Spectra) so the *dependency graph* survives
-even though the runtime doesn't; and be explicit on the tin that the sealed
-result is a **portable, verifiable record of the pipeline**, not a runnable
-pipeline. Re-hosting the compute (Spark/dbt/Airflow) is the customer's, on
-their own infrastructure. AXM makes the pipeline *auditable and portable as
-evidence*; it does not resurrect the Foundry runtime.
+**Honest AXM exit shape — the schema/DAG half is now BUILT
+([`PIPELINE_EXIT.md`](PIPELINE_EXIT.md)):** `axm-pipeline-exit` promotes
+**dataset schemas + the dependency DAG + build/schedule provenance** to genesis
+claims (queryable through Spectra) so the *dependency graph* survives even though
+the runtime doesn't, and seals the verbatim API responses as content — the same
+seal the ontology exit uses. It is explicit on the tin that the sealed result is
+a **portable, verifiable record of the pipeline, not a runnable pipeline.** Still
+**not** built and still the customer's to do: sealing the **cloned transform
+source** as content, and re-hosting the compute (Spark/dbt/Airflow) on their own
+infrastructure. AXM makes the pipeline *auditable and portable as evidence*; it
+does not resurrect the Foundry runtime.
 
 ---
 
@@ -204,7 +217,7 @@ machine.
 | Instance data | **Yes** (Ontology API v2) | data + verbatim responses | — | ✅ shipped |
 | Pipeline source | git clone | algorithms | runtime, bindings, orchestration | 🟡 mapped |
 | Pipeline (Builder) | lossy Java codegen | little | most (rewrite) | 🟡 mapped |
-| Dataset schemas / DAG | **Yes** (Datasets/Orchestration API) | schemas + DAG | — | 🟡 mapped |
+| Dataset schemas / DAG | **Yes** (Datasets/Orchestration API) | schemas + DAG | — | 🟢 **proven** (`axm-pipeline-exit`) |
 | Lineage | image only | — | all | 🟡 mapped |
 | Action definitions | **Yes** (Action Types API) | interface | rules/validation/writeback engine | 🟡 mapped |
 | Function/Query source | git clone | source | runtime | 🟡 mapped |
@@ -248,8 +261,10 @@ endorsement, and none of it involves any real data touching this repository.
 
 `foundry-workflow-layer-exit-map` — a **documentation** artifact:
 - reconciled against Palantir's **published** documentation as of 2026-07-07;
-- **nothing in this layer is implemented** in this repository (Layer 1 is; Layers
-  2–5 are mapped, not built);
+- **implementation status is explicit per row:** Layer 1 (ontology) and the
+  **structure half of Layer 2** (schemas + DAG + provenance, `axm-pipeline-exit`)
+  are built and proven; the Layer 2 **runtime** and Layers 3–5 are mapped, not
+  built;
 - confidence levels and *(inference)* / *(unverified)* flags are carried inline
   from the underlying research and **must not be silently upgraded**;
 - product surfaces drift — **re-verify before relying on any specific endpoint,

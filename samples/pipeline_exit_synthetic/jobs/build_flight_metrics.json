@@ -1,0 +1,14 @@
+{
+  "data": [
+    {
+      "rid": "ri.foundry.main.job.5ynth-jmetrics",
+      "jobStatus": "SUCCEEDED",
+      "inputs": [
+        {"datasetRid": "ri.foundry.main.dataset.5ynth-flights-clean"}
+      ],
+      "outputs": [
+        {"datasetRid": "ri.foundry.main.dataset.5ynth-flight-metrics"}
+      ]
+    }
+  ]
+}

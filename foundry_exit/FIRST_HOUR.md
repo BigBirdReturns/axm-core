@@ -124,12 +124,18 @@ removed.
 sealed, detached-verifiable, queryable record that needs no vendor to stay
 valid — reproducibly, on your own machine, in under an hour.
 
-**Did not prove:** that your *workflows* came with it. Pipelines, Actions,
-Functions, Workshop/AIP apps, and the permission model are **not** exited by
-this — and pretending otherwise is exactly the overclaim this project refuses.
+**Did not prove:** that your *workflows* came with it. Actions, Functions,
+Workshop/AIP apps, and the permission model are **not** exited by this — and
+pretending otherwise is exactly the overclaim this project refuses.
 [`WORKFLOW_EXIT_MAP.md`](WORKFLOW_EXIT_MAP.md) maps that frontier surface by
 surface: what you can take, what you must rebuild, and where there is simply no
 export to seal.
+
+**One frontier is already crossed:** the **pipeline structure** exit. Run
+`axm-pipeline-exit samples/pipeline_exit_synthetic --out ./pipeline_exit_out` to
+seal your dataset schemas + the dependency DAG ("what feeds what") the same way,
+queryable through Spectra — structure only, never the transform runtime. See
+[`PIPELINE_EXIT.md`](PIPELINE_EXIT.md).
 
 Proven, not deployed. The lifeboat is on the deck and seaworthy. Whether you
 ever sail it — with real data, from a real tenant — is your decision as the

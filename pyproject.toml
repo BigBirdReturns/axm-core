@@ -58,6 +58,7 @@ dev = [
 axm       = "axm_core.cli:main"
 axm-forge = "axm_forge.cli.main:main"
 axm-exit  = "foundry_exit.run_ontology_exit:main"
+axm-pipeline-exit = "foundry_exit.run_pipeline_exit:main"
 
 # ── Package discovery ─────────────────────────────────────────────────────────
 # axm-core owns:
