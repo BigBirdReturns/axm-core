@@ -47,8 +47,8 @@ class Emitter:
         self._result: Optional[EmissionResult] = None
 
         # Open files for writing
-        self._source_file = open(self.source_txt_path, 'w', encoding='utf-8')
-        self._provenance_file = open(self.provenance_jsonl_path, 'w', encoding='utf-8')
+        self._source_file = open(self.source_txt_path, 'w', encoding='utf-8', newline='\n')
+        self._provenance_file = open(self.provenance_jsonl_path, 'w', encoding='utf-8', newline='\n')
 
     def __enter__(self) -> "Emitter":
         return self
