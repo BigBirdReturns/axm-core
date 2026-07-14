@@ -26,6 +26,7 @@ import base64
 import json
 import os
 import secrets
+import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -61,6 +62,92 @@ def write_candidates_jsonl(out_path: Path, candidates: list[dict]) -> None:
             f.write(json.dumps(c, ensure_ascii=False) + "\n")
 
 
+def forge_extract_candidates(input_path: Path) -> tuple[str, list[dict]]:
+    """Run the real Forge tier-1 extraction on the input document.
+
+    Returns (source_text, candidates) where source_text is Forge's extracted
+    text — the exact bytes the candidates' evidence spans were found in, so
+    it MUST be what gets written as the shard's source.txt.
+    """
+    from axm_forge.ingestion.universal import ingest_paths
+    from axm_forge.chunking.simple import chunk_text
+    from axm_forge.models.claims import ClaimGenContext
+    from axm_forge.extraction.registry import run_generators
+    from axm_forge.extraction.tiers import tier1_regex  # noqa: F401 (registers the generator)
+    from axm_forge.emission.genesis_emission import Candidate
+
+    docs = ingest_paths([input_path])
+    if not docs:
+        raise SystemExit(f"Forge could not ingest {input_path}")
+    doc = docs[0]
+
+    chunks = chunk_text(doc.doc_id, doc.extracted_text, str(doc.path))
+    ctx = ClaimGenContext(
+        doc_id=doc.doc_id,
+        extracted_text=doc.extracted_text,
+        chunks=chunks,
+        entities={},
+        metrics={},
+    )
+    claims = run_generators(ctx, ["tier1_regex"])
+
+    candidates: list[dict] = []
+    for claim in claims:
+        candidate = Candidate.from_legacy_claim(claim)
+        if candidate.evidence and candidate.subject and candidate.predicate:
+            candidates.append(candidate.to_jsonl_dict())
+    return doc.extracted_text, candidates
+
+
+def fallback_candidate(text: str) -> dict | None:
+    """Derive one candidate from the source itself when extraction finds none.
+
+    Uses the first non-empty line that occurs exactly once, so the Genesis
+    compiler's strict evidence-span check is satisfied by construction.
+    """
+    for line in text.splitlines():
+        line = line.strip()
+        if len(line) >= 10 and text.count(line) == 1:
+            return {
+                "subject": "entity:doc",
+                "predicate": "has_excerpt",
+                "object": line,
+                "object_type": "literal:string",
+                "evidence": line,
+                "tier": 0,
+                "confidence": 1.0,
+            }
+    return None
+
+
+def preflight_evidence(text: str, candidates: list[dict]) -> tuple[list[dict], list[str]]:
+    """Split candidates into compilable and doomed, with reasons.
+
+    Mirrors the Genesis compiler's strict rule: evidence must appear exactly
+    once in the source bytes. The compiler silently drops not-found evidence
+    and hard-fails on ambiguity; checking here turns a bare 'compile failed'
+    into an actionable report.
+    """
+    ok: list[dict] = []
+    problems: list[str] = []
+    for c in candidates:
+        evidence = str(c.get("evidence", ""))
+        n = text.count(evidence) if evidence else 0
+        if not evidence:
+            problems.append(f"candidate {c.get('predicate')!r}: empty evidence")
+        elif n == 0:
+            problems.append(
+                f"candidate {c.get('predicate')!r}: evidence {evidence[:60]!r} not found in source"
+            )
+        elif n > 1:
+            problems.append(
+                f"candidate {c.get('predicate')!r}: evidence {evidence[:60]!r} ambiguous ({n} matches)"
+            )
+        else:
+            ok.append(c)
+    return ok, problems
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="Path to input TXT (or extracted text)")
@@ -74,32 +161,40 @@ def main() -> int:
     workdir.mkdir(parents=True, exist_ok=True)
 
     src_path = Path(args.input).resolve()
-    text = src_path.read_text(encoding="utf-8", errors="ignore")
 
-    # Minimal test candidates. Replace with Forge extraction once your tier generators are wired.
-    # Evidence strings MUST appear exactly once in normalized source text for Genesis compilation.
-    candidates = [
-        {
-            "subject": "entity:doc",
-            "predicate": "has_amount",
-            "object": "$1,234.56",
-            "object_type": "literal:string",
-            "evidence": "$1,234.56",
-            "tier": 0,
-            "confidence": 1.0,
-        },
-    ]
+    # Real Forge tier-1 extraction (keyless, deterministic). The extracted
+    # text — not the raw file bytes — is the source the evidence spans were
+    # found in, so it is what the shard seals.
+    text, candidates = forge_extract_candidates(src_path)
+    print(f"Forge extraction: {len(candidates)} candidate(s)")
+
+    candidates, problems = preflight_evidence(text, candidates)
+    for p in problems:
+        print(f"  dropped: {p}", file=sys.stderr)
+
+    if not candidates:
+        fb = fallback_candidate(text)
+        if fb is None:
+            print(
+                "No compilable candidates: tier-1 extraction found nothing and "
+                "no unique excerpt line exists to fall back on.",
+                file=sys.stderr,
+            )
+            return 2
+        print("Extraction found no candidates; using a has_excerpt fallback derived from the source.")
+        candidates = [fb]
 
     source_txt = workdir / "source.txt"
     source_txt.write_text(text, encoding="utf-8")
     candidates_jsonl = workdir / "candidates.jsonl"
     write_candidates_jsonl(candidates_jsonl, candidates)
 
+    # A fresh directory every run: the Genesis compiler refuses to wipe a
+    # non-empty out_dir that is not a previously compiled shard, and a
+    # half-written tree from an earlier failure trips that guard.
     shard_dir = workdir / "shard"
     if shard_dir.exists():
-        for p in shard_dir.rglob("*"):
-            if p.is_file():
-                p.unlink()
+        shutil.rmtree(shard_dir)
     shard_dir.mkdir(parents=True, exist_ok=True)
 
     # Throwaway axm-hybrid1 keypair (Ed25519 || ML-DSA-44). The secret is
@@ -121,7 +216,12 @@ def main() -> int:
 
     ok = compile_generic_shard(compiler_cfg)
     if not ok:
-        print("Genesis compile failed", file=sys.stderr)
+        print(
+            "Genesis compile failed: the compiler produced no claim rows from "
+            f"{len(candidates)} candidate(s). Preflight passed, so this is a "
+            "compiler-side rejection — check candidates.jsonl in the workdir.",
+            file=sys.stderr,
+        )
         return 2
 
     trusted_key = Path(args.trusted_pubkey).resolve() if args.trusted_pubkey else (shard_dir / "sig" / "publisher.pub")
@@ -150,9 +250,7 @@ def main() -> int:
         user_secret = secrets.token_bytes(32)
         envelope_dir = workdir / "envelope"
         if envelope_dir.exists():
-            for p in envelope_dir.rglob("*"):
-                if p.is_file():
-                    p.unlink()
+            shutil.rmtree(envelope_dir)
         try:
             # clarion.core.encrypt_shard raises ImportError at call time when
             # graphkdf is absent, so guard the call as well as the import.

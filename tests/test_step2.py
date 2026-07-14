@@ -22,6 +22,11 @@ from axm_forge.routing import Router, validate_emission
 
 
 def test_step2_routing():
+    """Pytest entry point: a False from the runner must FAIL, not warn."""
+    assert _run_step2_routing()
+
+
+def _run_step2_routing():
     """Test Step 2: Text Density + Native Detection."""
     
     # Use test fixture
@@ -168,7 +173,7 @@ def test_step2_routing():
 if __name__ == "__main__":
     print("=== Step 2: Text Density + Native Detection Test ===\n")
     
-    success = test_step2_routing()
+    success = _run_step2_routing()
     
     if success:
         print("\n" + "="*50)

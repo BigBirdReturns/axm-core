@@ -19,6 +19,11 @@ from axm_forge.routing import Router, validate_emission
 
 
 def test_routing_on_text():
+    """Pytest entry point: a False from the runner must FAIL, not warn."""
+    assert _run_routing_on_text()
+
+
+def _run_routing_on_text():
     """Test router on a plain text file."""
     # Use test fixture
     fixture_path = Path(__file__).parent / "fixtures" / "test_native.txt"
@@ -55,7 +60,7 @@ def test_routing_on_text():
 if __name__ == "__main__":
     print("=== Routing Module Smoke Test ===\n")
     
-    success = test_routing_on_text()
+    success = _run_routing_on_text()
     
     if success:
         print("\n✅ Routing module smoke test PASSED")

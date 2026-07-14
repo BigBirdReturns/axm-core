@@ -102,22 +102,13 @@ def cmd_extract(args: argparse.Namespace) -> int:
         
         claims = run_generators(ctx, enabled)
         
-        # Convert to candidates
+        # Convert to candidates — same conversion cmd_build uses via
+        # emit_genesis_shard, so extract-then-compile matches build.
         candidates = []
         for claim in claims:
-            evidence = ""
-            if claim.source_spans:
-                evidence = claim.source_spans[0].snippet
-            
-            if evidence and claim.predicate:
-                candidates.append(Candidate(
-                    subject=claim.entity_id or claim.subject_label or "",
-                    predicate=claim.predicate,
-                    object=claim.value,
-                    object_type="literal:string",
-                    evidence=evidence,
-                    tier=claim.tier,
-                ))
+            candidate = Candidate.from_legacy_claim(claim)
+            if candidate.evidence and candidate.subject and candidate.predicate:
+                candidates.append(candidate)
         
         # Write outputs
         doc_out = out_dir / doc.doc_id
