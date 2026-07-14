@@ -42,6 +42,7 @@ def _combined(result) -> str:
 
 def test_list_without_trust_anchor_says_signed_not_verified(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _fake_shard(tmp_path, "sh1_deadbeef", signed=True,
                 namespace="decisions/2026", title="Decision: adopt hybrid suite")
 
@@ -54,6 +55,7 @@ def test_list_without_trust_anchor_says_signed_not_verified(tmp_path, monkeypatc
 
 def test_list_verified_filter_requires_a_trusted_key(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     _fake_shard(tmp_path, "sh1_deadbeef", signed=True,
                 namespace="general/2026", title="A shard")
 
