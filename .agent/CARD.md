@@ -21,7 +21,7 @@ Canonical checkout: `D:\Projects\Organs\AXM\axm-core\main`
 
 ## Staleness
 - generated_at: 2026-07-23
-- source_commit: 125de27
+- source_commit: 1a7e9e8
 - regenerate: `python D:/Projects/Tooling/Estate/main/cards.py axm-core --write`
 
 This card is GENERATED. If it disagrees with the repository, the repository is right. Do not hand-edit this card — regenerate it: python D:/Projects/Tooling/Estate/main/cards.py axm-core --write
