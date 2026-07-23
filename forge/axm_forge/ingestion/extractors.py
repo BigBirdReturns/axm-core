@@ -979,7 +979,7 @@ _EXTRACTORS = {
     ".rss": extract_rss, ".atom": extract_rss,
 }
 
-SUPPORTED_EXTENSIONS = sorted(_EXTRACTORS.keys())
+SUPPORTED_EXTENSIONS = sorted({*_EXTRACTORS.keys(), ".jsonld"})
 
 
 def extract(path: Path) -> ExtractedDocument:
@@ -992,7 +992,30 @@ def extract(path: Path) -> ExtractedDocument:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
+    from axm_forge.ingestion.package_graph import is_package_manifest
+    from axm_forge.ingestion.structured import (
+        extract_html_schemaorg,
+        extract_package_manifest,
+        extract_schemaorg,
+    )
+
+    if is_package_manifest(path):
+        return extract_package_manifest(path)
     ext = path.suffix.lower()
+    if ext == ".jsonld":
+        return extract_schemaorg(path)
+    if ext == ".json":
+        try:
+            from axm_forge.ingestion.schemaorg import is_schemaorg_data
+            data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            data = None
+        if is_schemaorg_data(data):
+            return extract_schemaorg(path)
+    if ext in {".html", ".htm"}:
+        schemaorg = extract_html_schemaorg(path)
+        if schemaorg.tier0_candidates:
+            return schemaorg
     if ext not in _EXTRACTORS:
         raise ValueError(f"Unsupported format: {ext}\nSupported: {', '.join(SUPPORTED_EXTENSIONS)}")
     return _EXTRACTORS[ext](path)

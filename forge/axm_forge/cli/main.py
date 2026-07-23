@@ -19,8 +19,8 @@ import argparse
 import base64
 import json
 import os
-import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -34,16 +34,6 @@ from axm_forge.extraction.tiers import tier1_regex  # noqa:F401
 from axm_forge.extraction.tiers import tier3_llm    # noqa:F401
 
 from axm_forge.coloring.policy import load_policy, classify_text
-from axm_forge.emission.genesis_emission import (
-    EmissionConfig,
-    emit_genesis_shard,
-    write_candidates_jsonl,
-    write_source_txt,
-    Candidate,
-    call_axm_verify,
-)
-
-
 def _collect_input_files(input_path: Path) -> List[Path]:
     """Collect input files from path."""
     if input_path.is_file():
@@ -65,6 +55,27 @@ def cmd_extract(args: argparse.Namespace) -> int:
     in_path = Path(args.input).resolve()
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if in_path.is_file():
+        from axm_forge.ingestion.structured import _write_document, extract_structured
+
+        try:
+            structured = extract_structured(in_path)
+        except ValueError:
+            structured = None
+        if (
+            structured is not None
+            and structured.format == "html_schemaorg"
+            and not structured.tier0_candidates
+        ):
+            structured = None
+        if structured is not None:
+            _write_document(structured, out_dir)
+            print(f"Processing: {in_path}")
+            print(f"  Extracted {len(structured.tier0_candidates or [])} candidates")
+            print(f"  Source: {out_dir / 'source.txt'}")
+            print(f"  Candidates: {out_dir / 'candidates.jsonl'}")
+            return 0
     
     files = _collect_input_files(in_path)
     if not files:
@@ -110,24 +121,26 @@ def cmd_extract(args: argparse.Namespace) -> int:
                 evidence = claim.source_spans[0].snippet
             
             if evidence and claim.predicate:
-                candidates.append(Candidate(
-                    subject=claim.entity_id or claim.subject_label or "",
-                    predicate=claim.predicate,
-                    object=claim.value,
-                    object_type="literal:string",
-                    evidence=evidence,
-                    tier=claim.tier,
-                ))
+                candidates.append({
+                    "subject": claim.entity_id or claim.subject_label or "",
+                    "predicate": claim.predicate,
+                    "object": claim.value,
+                    "object_type": "literal:string",
+                    "evidence": evidence,
+                    "tier": claim.tier,
+                })
         
         # Write outputs
-        doc_out = out_dir / doc.doc_id
+        doc_out = out_dir / doc.doc_id.replace(":", "-")
         doc_out.mkdir(parents=True, exist_ok=True)
         
         source_path = doc_out / "source.txt"
         candidates_path = doc_out / "candidates.jsonl"
         
-        write_source_txt(source_path, doc.extracted_text)
-        write_candidates_jsonl(candidates_path, candidates)
+        source_path.write_text(doc.extracted_text, encoding="utf-8")
+        with candidates_path.open("w", encoding="utf-8") as handle:
+            for candidate in candidates:
+                handle.write(json.dumps(candidate, ensure_ascii=False) + "\n")
         
         print(f"  Extracted {len(candidates)} candidates")
         print(f"  Source: {source_path}")
@@ -142,17 +155,63 @@ def cmd_extract(args: argparse.Namespace) -> int:
 def cmd_build(args: argparse.Namespace) -> int:
     """Full pipeline: extract → compile → verify → optionally encrypt."""
     
-    # Check for axm-build availability
-    try:
-        subprocess.run(["axm-build", "--help"], capture_output=True, check=True)
-    except FileNotFoundError:
-        print("ERROR: axm-build not found. Install axm-genesis package.", file=sys.stderr)
-        print("       pip install axm-genesis", file=sys.stderr)
-        return 1
-    
+    from axm_forge.emission.genesis_emission import (
+        EmissionConfig,
+        call_axm_build,
+        call_axm_verify,
+        emit_genesis_shard,
+    )
+
     in_path = Path(args.input).resolve()
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if in_path.is_file():
+        from axm_forge.ingestion.structured import _write_document, extract_structured
+
+        try:
+            structured = extract_structured(in_path)
+        except ValueError:
+            structured = None
+        if (
+            structured is not None
+            and structured.format == "html_schemaorg"
+            and not structured.tier0_candidates
+        ):
+            structured = None
+        if structured is not None and structured.tier0_candidates:
+            if args.encrypt:
+                print(
+                    "ERROR: encryption is not yet supported for structured tier-0 build input",
+                    file=sys.stderr,
+                )
+                return 1
+            shard_name = f"{args.namespace.replace('/', '-')}-{in_path.stem}"
+            shard_dir = out_dir / shard_name
+            with tempfile.TemporaryDirectory(prefix="forge_structured_build_") as temp:
+                extraction_dir = Path(temp)
+                _write_document(structured, extraction_dir)
+                success, message, _ = call_axm_build(
+                    extraction_dir / "source.txt",
+                    extraction_dir / "candidates.jsonl",
+                    shard_dir,
+                    namespace=args.namespace,
+                    publisher_id=args.publisher_id,
+                    publisher_name=args.publisher_name,
+                    private_key_hex=args.signing_key,
+                    title=in_path.stem,
+                )
+            if not success:
+                print(f"ERROR: {message}", file=sys.stderr)
+                return 1
+            verified, verify_result = call_axm_verify(
+                shard_dir, shard_dir / "sig" / "publisher.pub"
+            )
+            print(f"Processing: {in_path}")
+            print(f"  Extracted {len(structured.tier0_candidates)} candidates")
+            print(f"  Shard: {shard_dir}")
+            print(json.dumps(verify_result, indent=2))
+            return 0 if verified else 1
     
     files = _collect_input_files(in_path)
     if not files:
@@ -251,6 +310,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
     if hasattr(args, 'trusted_key') and args.trusted_key:
         trusted_key = Path(args.trusted_key).resolve()
     
+    from axm_forge.emission.genesis_emission import call_axm_verify
+
     passed, result = call_axm_verify(shard_dir, trusted_key)
     
     print(json.dumps(result, indent=2))

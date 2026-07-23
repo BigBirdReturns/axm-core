@@ -40,6 +40,12 @@ pip install -e ../axm-genesis  # kernel checkout (sibling repo) — required for
 axm-forge extract document.pdf --out ./extraction/
 ```
 
+The same command routes observed package manifests and Schema.org JSON-LD
+files (including inline JSON-LD in HTML) through deterministic tier-0
+adapters. Estate-wide package graphs use the separate multi-root command.
+See [STRUCTURED_ADAPTERS.md](STRUCTURED_ADAPTERS.md) for the reality gate,
+canonical-source contract, and commands.
+
 ### Full Pipeline
 ```bash
 axm-forge build document.pdf \

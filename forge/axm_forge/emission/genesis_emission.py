@@ -18,6 +18,7 @@ import hashlib
 import json
 import secrets
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -237,7 +238,7 @@ def call_axm_verify(
     Returns:
         (passed, result_dict)
     """
-    cmd = ["python", "-m", "axm_verify.cli", "shard", str(shard_dir)]
+    cmd = [sys.executable, "-m", "axm_verify.cli", "shard", str(shard_dir)]
     
     # Determine trusted key path
     if trusted_key and trusted_key.exists():
