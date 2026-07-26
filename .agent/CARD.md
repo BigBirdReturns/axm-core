@@ -20,8 +20,8 @@ Canonical checkout: `D:\Projects\Organs\AXM\axm-core\main`
 - Bounded validator-backed work follows root `AGENTS.md`; no web dashboard is required.
 
 ## Staleness
-- generated_at: 2026-07-23
-- source_commit: 1a7e9e8
+- generated_at: 2026-07-26
+- source_commit: 0082b01
 - regenerate: `python D:/Projects/Tooling/Estate/main/cards.py axm-core --write`
 
 This card is GENERATED. If it disagrees with the repository, the repository is right. Do not hand-edit this card — regenerate it: python D:/Projects/Tooling/Estate/main/cards.py axm-core --write
