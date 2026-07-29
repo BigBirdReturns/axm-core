@@ -90,6 +90,31 @@ class IntakeStore(ReferenceIntakeStore):
         }
         return result
 
+    @classmethod
+    def restore_backup(
+        cls,
+        archive_path: Path,
+        destination: Path,
+        *,
+        writer_id: str | None = None,
+    ) -> "IntakeStore":
+        """Restore, relocate, then reopen under all production checks."""
+        from .store_recovery import restore_backup
+
+        restored_reference = restore_backup(
+            archive_path,
+            destination,
+            writer_id=writer_id,
+        )
+        restored = cls(restored_reference.config)
+        result = restored.verify()
+        if result["status"] != "PASS":
+            raise StoreError(
+                "restored production store failed verification: "
+                + "; ".join(result["errors"])
+            )
+        return restored
+
     def verify(self) -> dict[str, Any]:
         errors: list[str] = []
         checked_observations = 0
