@@ -23,13 +23,13 @@ class IntakeStore(ReferenceIntakeStore):
         self._repair_committed_artifacts()
 
     def _assert_store_path(self, path: Path, label: str) -> Path:
+        if path.is_symlink():
+            raise StoreError(f"{label} must not be a symlink: {path}")
         resolved = path.resolve()
         try:
             resolved.relative_to(self.root.resolve())
         except ValueError as exc:
             raise StoreError(f"{label} escapes the store root: {path}") from exc
-        if path.is_symlink():
-            raise StoreError(f"{label} must not be a symlink: {path}")
         return resolved
 
     def _repair_committed_artifacts(self) -> None:
