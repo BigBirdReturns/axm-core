@@ -17,7 +17,8 @@ from . import (
     validate,
     validate_adapter,
 )
-from .store import IntakeStore, StoreConfig, StoreError
+from .production_store import IntakeStore
+from .store_common import StoreConfig, StoreError
 
 
 def load(path: Path) -> dict:
