@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -117,9 +118,16 @@ def test_rebuild_backup_and_clean_restore(tmp_path: Path):
     assert rebuilt["failed"] == 0
     assert custody.verify()["status"] == "PASS"
     archive = custody.backup(tmp_path / "intake-backup.zip")
+    original_root = custody.root
+    shutil.rmtree(original_root)
     restored = IntakeStore.restore_backup(archive, tmp_path / "restored")
+    assert not original_root.exists()
     assert restored.status()["observations"] == 2
     assert restored.verify()["status"] == "PASS"
+    for receipt in (restored.root / "receipts").glob("*.json"):
+        payload = json.loads(receipt.read_text(encoding="utf-8"))
+        assert str(restored.root) in payload["object_path"]
+        assert str(restored.root) in payload["event_path"]
 
 
 def test_atomic_spool_preserves_success_and_rejection(tmp_path: Path):
