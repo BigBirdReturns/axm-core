@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axm.tools/schemas/intake/adapter-manifest-v1.schema.json",
+  "title": "AXM Intake Adapter Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "specversion",
+    "id",
+    "name",
+    "version",
+    "license",
+    "source",
+    "transport",
+    "inputs",
+    "outputs",
+    "capabilities",
+    "authority",
+    "telemetry",
+    "security",
+    "limits"
+  ],
+  "properties": {
+    "specversion": {"const": "axm-intake-adapter/1.0"},
+    "id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9._-]{1,126}[a-z0-9])?$"},
+    "name": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "license": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1}
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["stdio-jsonl", "file-drop", "native-messaging", "mcp", "otlp", "http", "library"]},
+        "command": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "stdio-jsonl"}}},
+          "then": {"required": ["command"]}
+        }
+      ]
+    },
+    "inputs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "outputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "contains": {"const": "axm-intake/1.0"},
+      "items": {"type": "string", "minLength": 1}
+    },
+    "capabilities": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "authority": {"const": "observation_only"},
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default"],
+      "properties": {"default": {"const": "off"}}
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network_required", "credentials", "sandbox_recommended"],
+      "properties": {
+        "network_required": {"type": "boolean"},
+        "credentials": {"type": "boolean"},
+        "sandbox_recommended": {"type": "boolean"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_record_bytes"],
+      "properties": {"max_record_bytes": {"type": "integer", "minimum": 1}}
+    },
+    "extensions": {"type": "object"}
+  }
+}
