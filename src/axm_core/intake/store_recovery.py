@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 import time
 import uuid
@@ -180,6 +181,7 @@ def backup_store(store: "IntakeStore", destination: Path) -> Path:
                     "specversion": "axm-intake-backup/1",
                     "created_at": now(),
                     "writer_id": store.config.writer_id,
+                    "source_root": str(store.root),
                     "store_verification": verification,
                 },
             )
@@ -226,10 +228,19 @@ def restore_backup(
         source = stage / "intake"
         if not (source / "backup-manifest.json").is_file():
             raise StoreError("backup manifest is missing")
+        backup_manifest = load_json(source / "backup-manifest.json")
         store_manifest = load_json(source / "store.json")
-        restored_writer = writer_id or str(store_manifest.get("writer_id") or "")
+        restored_writer = str(store_manifest.get("writer_id") or "")
         if not restored_writer:
             raise StoreError("backup does not declare writer_id")
+        if writer_id and writer_id != restored_writer:
+            raise StoreError(
+                "writer_id cannot change during restore because it identifies "
+                "the admitted event stream"
+            )
+        source_root = Path(str(backup_manifest.get("source_root") or ""))
+        if not source_root.is_absolute():
+            raise StoreError("backup does not carry an absolute source_root")
         for item in source.iterdir():
             if item.name == "backup-manifest.json":
                 continue
@@ -238,6 +249,67 @@ def restore_backup(
                 shutil.copytree(item, target)
             else:
                 shutil.copy2(item, target)
+
+    def relocated(value: str) -> str:
+        path = Path(value)
+        try:
+            relative = path.relative_to(source_root)
+        except ValueError:
+            return value
+        return str(destination / relative)
+
+    database = destination / "store.sqlite3"
+    for suffix in ("-wal", "-shm"):
+        try:
+            Path(str(database) + suffix).unlink()
+        except FileNotFoundError:
+            pass
+    with sqlite3.connect(database) as db:
+        db.row_factory = sqlite3.Row
+        rows = db.execute(
+            "SELECT observation_id,object_path,envelope_path,receipt_path "
+            "FROM observations"
+        ).fetchall()
+        for row in rows:
+            receipt_path = Path(relocated(str(row["receipt_path"])))
+            receipt = load_json(receipt_path)
+            for field in ("object_path", "envelope_path", "receipt_path", "event_path"):
+                if isinstance(receipt.get(field), str):
+                    receipt[field] = relocated(receipt[field])
+            atomic_write_json(receipt_path, receipt)
+            db.execute(
+                "UPDATE observations SET object_path=?,envelope_path=?,"
+                "receipt_path=?,receipt_json=? WHERE observation_id=?",
+                (
+                    relocated(str(row["object_path"])),
+                    relocated(str(row["envelope_path"])),
+                    str(receipt_path),
+                    canonical(receipt).decode("utf-8"),
+                    row["observation_id"],
+                ),
+            )
+        event_rows = db.execute(
+            "SELECT stream_id,seq,event_path FROM events"
+        ).fetchall()
+        for row in event_rows:
+            db.execute(
+                "UPDATE events SET event_path=? WHERE stream_id=? AND seq=?",
+                (relocated(str(row["event_path"])), row["stream_id"], row["seq"]),
+            )
+        quarantine_rows = db.execute(
+            "SELECT quarantine_id,artifact_path,error_path FROM quarantine"
+        ).fetchall()
+        for row in quarantine_rows:
+            db.execute(
+                "UPDATE quarantine SET artifact_path=?,error_path=? "
+                "WHERE quarantine_id=?",
+                (
+                    relocated(str(row["artifact_path"])),
+                    relocated(str(row["error_path"])),
+                    row["quarantine_id"],
+                ),
+            )
+        db.commit()
     restored = IntakeStore(StoreConfig(destination, restored_writer))
     result = restored.verify()
     if result["status"] != "PASS":
@@ -251,6 +323,10 @@ def spool_submit(store: "IntakeStore", observation_path: Path) -> Path:
     source = observation_path.expanduser().resolve()
     if not source.is_file():
         raise StoreError(f"spool source is not a file: {source}")
+    if source.stat().st_size > store.config.max_envelope_bytes:
+        raise StoreError(
+            f"spool source exceeds {store.config.max_envelope_bytes} bytes"
+        )
     identifier = f"{int(time.time() * 1_000_000):020d}_{uuid.uuid4().hex}.json"
     destination = store.root / "spool" / "pending" / identifier
     copy_atomic(source, destination)
