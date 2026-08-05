@@ -1,0 +1,36 @@
+{
+  "accepted_gates": [],
+  "archive": {
+    "file_count": 189,
+    "name": "AXM-Aperture-Implementation-Candidate-v0.1.0.zip",
+    "sha256": "cfe1ea3cf7ad2e65c08b1bae253a499503ec94d63a34f2e05bd366045dffa854",
+    "size_bytes": 362058
+  },
+  "candidate_gates": [
+    "G0",
+    "G1",
+    "G2"
+  ],
+  "cold_reconstruction": {
+    "manifest_paths_verified": 188,
+    "qualification_identity_reproduced": true
+  },
+  "format": "axm-aperture-incubation-custody/1",
+  "incubator_authority": "transport_only",
+  "normative_repository": "BigBirdReturns/axm-aperture",
+  "oracle_receipt_id": "oracle1_8f77458995aaa5626158ecedcfef3752e2cd0efd4a7cd1cdc1e372b50cb89cdd",
+  "program": {
+    "dependency_edges": 593,
+    "epics": 11,
+    "gates": 10,
+    "issues": 140,
+    "negative_fixtures": 9,
+    "requirements": 85,
+    "schemas": 20,
+    "valid_fixtures": 13
+  },
+  "qualification_id": "qualification1_8ae7452d6f0d903fb27e81319fa83b59e4d0b0004f03124b191a3a1a607843a8",
+  "standing": "local_candidate",
+  "target_issue": "BigBirdReturns/axm-core#30",
+  "version": "0.1.0"
+}
