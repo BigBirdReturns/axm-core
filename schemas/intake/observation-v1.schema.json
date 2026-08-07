@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axm.tools/schemas/intake/observation-v1.schema.json",
+  "title": "AXM Intake Observation v1",
+  "description": "Language-neutral raw observation envelope. This is pre-shard intake and never confers authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "specversion",
+    "type",
+    "id",
+    "content_id",
+    "source",
+    "subject",
+    "observed_at",
+    "recorded_at",
+    "payload",
+    "authority",
+    "relations",
+    "coverage",
+    "security",
+    "extensions"
+  ],
+  "properties": {
+    "specversion": {"const": "axm-intake/1.0"},
+    "type": {"const": "observation"},
+    "id": {"type": "string", "pattern": "^obs1_[0-9a-f]{64}$"},
+    "content_id": {"type": "string", "pattern": "^cnt1_[0-9a-f]{64}$"},
+    "source": {"$ref": "#/$defs/source"},
+    "subject": {"$ref": "#/$defs/subject"},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "payload": {"$ref": "#/$defs/payload"},
+    "authority": {"const": "observation_only"},
+    "relations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/relation"}
+    },
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "security": {"$ref": "#/$defs/security"},
+    "extensions": {"type": "object"}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter_id", "adapter_version", "producer", "source_uri"],
+      "properties": {
+        "adapter_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9._-]{1,126}[a-z0-9])?$"},
+        "adapter_version": {"type": "string", "minLength": 1},
+        "producer": {"type": "string", "minLength": 1},
+        "source_uri": {"type": "string", "minLength": 1},
+        "source_revision": {"type": "string", "minLength": 1},
+        "source_license": {"type": "string", "minLength": 1},
+        "profile_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "logical_id", "version_id", "parent_version_ids"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "conversation",
+            "agent_trace",
+            "agent_task",
+            "protocol_message",
+            "job",
+            "artifact",
+            "attestation",
+            "web_capture",
+            "document",
+            "research_object",
+            "event",
+            "other"
+          ]
+        },
+        "logical_id": {"type": "string", "minLength": 1},
+        "version_id": {"type": "string", "minLength": 1},
+        "parent_version_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["media_type", "sha256", "bytes", "encoding"],
+      "properties": {
+        "media_type": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "encoding": {"type": "string", "minLength": 1},
+        "content": {"type": "string"},
+        "content_base64": {"type": "string", "contentEncoding": "base64"},
+        "locator": {"type": "string", "minLength": 1}
+      },
+      "oneOf": [
+        {
+          "required": ["content"],
+          "not": {"anyOf": [{"required": ["content_base64"]}, {"required": ["locator"]}]}
+        },
+        {
+          "required": ["content_base64"],
+          "not": {"anyOf": [{"required": ["content"]}, {"required": ["locator"]}]}
+        },
+        {
+          "required": ["locator"],
+          "not": {"anyOf": [{"required": ["content"]}, {"required": ["content_base64"]}]}
+        }
+      ]
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "target"],
+      "properties": {
+        "type": {
+          "enum": [
+            "revision_of",
+            "branch_of",
+            "fragment_of",
+            "correction_of",
+            "derived_from",
+            "generated_by",
+            "used",
+            "generated",
+            "supports",
+            "contradicts",
+            "implements",
+            "responds_to",
+            "associated_with"
+          ]
+        },
+        "target": {"type": "string", "minLength": 1},
+        "target_kind": {"type": "string", "minLength": 1},
+        "note": {"type": "string"}
+      }
+    },
+    "denominator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "expected", "observed", "excluded"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "expected": {"type": "integer", "minimum": 0},
+        "observed": {"type": "integer", "minimum": 0},
+        "excluded": {"type": "integer", "minimum": 0}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "status", "method", "exceptions"],
+      "properties": {
+        "scope": {"type": "string", "minLength": 1},
+        "status": {"enum": ["complete", "partial", "unknown", "not_applicable"]},
+        "method": {"type": "string", "minLength": 1},
+        "denominator": {"$ref": "#/$defs/denominator"},
+        "exceptions": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "complete"}}},
+          "then": {"required": ["denominator"]}
+        }
+      ]
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sensitivity", "personal_data", "credentials", "redactions"],
+      "properties": {
+        "sensitivity": {"enum": ["public", "private", "restricted", "unknown"]},
+        "personal_data": {"enum": ["yes", "no", "unknown"]},
+        "credentials": {"enum": ["yes", "no", "unknown"]},
+        "redactions": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

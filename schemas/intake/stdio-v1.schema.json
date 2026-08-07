@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axm.tools/schemas/intake/stdio-v1.schema.json",
+  "title": "AXM Intake stdio JSONL v1",
+  "oneOf": [
+    {
+      "title": "Request",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "request_id", "action"],
+      "properties": {
+        "protocol": {"const": "axm-intake-stdio/1"},
+        "request_id": {"type": "string", "minLength": 1},
+        "action": {"enum": ["health", "capabilities", "translate"]},
+        "format": {"type": "string", "minLength": 1},
+        "record": {"type": "object"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"action": {"const": "translate"}}},
+          "then": {"required": ["format", "record"]}
+        }
+      ]
+    },
+    {
+      "title": "Response",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "request_id", "status", "result", "errors"],
+      "properties": {
+        "protocol": {"const": "axm-intake-stdio/1"},
+        "request_id": {"type": "string"},
+        "status": {"enum": ["ok", "error"]},
+        "result": {},
+        "errors": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  ]
+}

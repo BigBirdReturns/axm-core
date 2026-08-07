@@ -1,0 +1,39 @@
+{
+  "authority": "observation_only",
+  "capabilities": [
+    "translate"
+  ],
+  "extensions": {},
+  "id": "org.example.adapter",
+  "inputs": [
+    "example"
+  ],
+  "license": "Apache-2.0",
+  "limits": {
+    "max_record_bytes": 1024
+  },
+  "name": "Example",
+  "outputs": [
+    "axm-intake/1.0"
+  ],
+  "security": {
+    "credentials": false,
+    "network_required": false,
+    "sandbox_recommended": true
+  },
+  "source": {
+    "repository": "https://example.invalid/r",
+    "revision": "abc"
+  },
+  "specversion": "axm-intake-adapter/1.0",
+  "telemetry": {
+    "default": "off"
+  },
+  "transport": {
+    "command": [
+      "adapter"
+    ],
+    "kind": "stdio-jsonl"
+  },
+  "version": "1"
+}

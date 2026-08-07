@@ -1,0 +1,132 @@
+{
+  "schema_version": "axm-current-state/1",
+  "initiative": "chat-continuity-and-universal-intake",
+  "authority": "Repository state and executable acceptance gates outrank prior chat summaries and downloadable design bundles.",
+  "components": [
+    {
+      "id": "genesis-v1",
+      "repository": "BigBirdReturns/axm-genesis",
+      "artifact": "main",
+      "role": "cryptographic_kernel",
+      "status": "authoritative",
+      "owns": [
+        "shard_format",
+        "compilation",
+        "sealed_identity",
+        "merkle",
+        "signing",
+        "detached_verification"
+      ]
+    },
+    {
+      "id": "core-intake-floor",
+      "repository": "BigBirdReturns/axm-core",
+      "pull_request": 28,
+      "branch": "agent/intake-compatibility-floor",
+      "head": "d0f6a520890993ee536cd32d69e53db878177aad",
+      "role": "neutral_pre_shard_observation_contract",
+      "status": "draft_unmerged",
+      "implemented": [
+        "axm-intake/1.0 envelope",
+        "cnt1 content identity",
+        "obs1 observation identity",
+        "authority continuity coverage and security validation",
+        "adapter manifest validation and Python discovery",
+        "standard translators",
+        "NDJSON stdio protocol",
+        "public schemas and conformance vectors"
+      ],
+      "not_implemented": [
+        "generic durable admission store",
+        "atomic spool worker",
+        "adapter release catalog",
+        "operator eligibility policy",
+        "signed multi-writer checkpoints",
+        "retention deletion and legal hold",
+        "preservation and succession campaigns",
+        "hosted ingress service"
+      ]
+    },
+    {
+      "id": "chat-evidence-memory",
+      "repository": "BigBirdReturns/axm-chat",
+      "pull_request": 9,
+      "branch": "agent/evidence-bound-memory",
+      "head": "b72b3dd61cea1fbaec3422b808dfc3bb89bad862",
+      "role": "conversation_compilation_and_semantic_memory",
+      "status": "draft_unmerged_real_corpus_gates_pending"
+    },
+    {
+      "id": "browser-acquisition-current",
+      "repository": "BigBirdReturns/chatgpt-web",
+      "pull_request": 1,
+      "branch": "agent/browser-sync-native-host",
+      "head": "23bcc1b5ef915184fbd3cb05e520ddfab8c39f42",
+      "role": "browser_acquisition_and_head_diff",
+      "status": "draft_unmerged_live_profile_smoke_pending",
+      "supersedes": [
+        "axm-chat-pr10-browser-extension",
+        "axm-chat-pr10-native-host",
+        "manual-share-url-daily-workflow",
+        "manual-copy-paste-daily-workflow"
+      ],
+      "migration_required": [
+        "emit axm-intake/1.0",
+        "pass Core public conformance vectors",
+        "preserve provider-native payload as observation source"
+      ]
+    },
+    {
+      "id": "chat-browser-sync-legacy-stack",
+      "repository": "BigBirdReturns/axm-chat",
+      "pull_request": 10,
+      "branch": "agent/browser-sync-v0",
+      "head": "a37bedc4ed4118e6a49e6f70004f00c02baf9b9f",
+      "role": "earlier_combined_browser_and_project_binding_implementation",
+      "status": "partially_superseded_do_not_merge_unchanged",
+      "superseded_by": [
+        "browser-acquisition-current",
+        "core-intake-floor"
+      ],
+      "salvage": [
+        "authenticated ChatGPT account inventory",
+        "provider response retention patterns",
+        "project matching",
+        "Git context capture",
+        "semantic memory job scheduling",
+        "claim-level project binding shards"
+      ]
+    }
+  ],
+  "design_antecedents": [
+    {
+      "name": "AXM Chat Continuity Protocol v1 bundle",
+      "status": "non_authoritative_design_antecedent"
+    },
+    {
+      "name": "AXM Evidence Intake and Decision Provenance Protocol v2 bundle",
+      "status": "non_authoritative_design_antecedent"
+    }
+  ],
+  "unresolved_gates": [
+    "merge dependency graph is unresolved",
+    "duplicate browser implementations remain",
+    "browser collector has not migrated to axm-intake/1.0",
+    "PR9 real-corpus P0 acceptance is incomplete",
+    "live Edge or Chrome acceptance is incomplete",
+    "official export reconciliation is not one automated signed coverage campaign",
+    "PR10 salvage modules are not ported",
+    "generic authority action artifact verification outcome model is not implemented",
+    "multi-writer trust rotation privacy preservation and succession remain gaps",
+    "third-party adapter to detached-verified shard path is not proven end to end"
+  ],
+  "merge_order": [
+    "accept or repair axm-chat PR9",
+    "complete and accept axm-core PR28",
+    "migrate chatgpt-web PR1 onto axm-intake/1.0 and accepted axm-chat interfaces",
+    "port PR10 salvage modules and retire duplicate browser lane",
+    "run live browser and official export reconciliation gates",
+    "merge and release in dependency order",
+    "perform clean-machine install and restore rehearsal"
+  ]
+}

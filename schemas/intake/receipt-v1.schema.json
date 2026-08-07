@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axm.tools/schemas/intake/receipt-v1.schema.json",
+  "title": "AXM Intake Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["specversion", "observation_id", "content_id", "status", "recorded_at", "store", "warnings", "authority"],
+  "properties": {
+    "specversion": {"const": "axm-intake-receipt/1.0"},
+    "observation_id": {"type": "string", "pattern": "^obs1_[0-9a-f]{64}$"},
+    "content_id": {"type": "string", "pattern": "^cnt1_[0-9a-f]{64}$"},
+    "status": {"enum": ["accepted", "unchanged", "extended", "revised", "diverged", "truncated", "rejected"]},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "store": {"type": "object"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "authority": {"const": "observation_only"}
+  }
+}

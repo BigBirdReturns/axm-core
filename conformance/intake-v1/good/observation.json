@@ -1,0 +1,56 @@
+{
+  "authority": "observation_only",
+  "content_id": "cnt1_8fc0a50bef31abe7668aeb21704bd49cb54009582f4729154d09194f3dd4924a",
+  "coverage": {
+    "denominator": {
+      "excluded": 0,
+      "expected": 1,
+      "kind": "input_record",
+      "observed": 1
+    },
+    "exceptions": [],
+    "method": "one input record mapped to one observation",
+    "scope": "one translated input record",
+    "status": "not_applicable"
+  },
+  "extensions": {
+    "bridge": {
+      "event_type": "example",
+      "format": "cloudevents",
+      "specversion": "1.0"
+    }
+  },
+  "id": "obs1_ff8f178248331ba78e204c2c1df1fe3591978c3a7d48a1914485b0995f3d59fb",
+  "observed_at": "2026-07-28T12:00:00Z",
+  "payload": {
+    "bytes": 160,
+    "content_base64": "ewogICJzcGVjdmVyc2lvbiI6ICIxLjAiLAogICJpZCI6ICJldnQtMSIsCiAgInNvdXJjZSI6ICJ1cm46dGVzdCIsCiAgInR5cGUiOiAiZXhhbXBsZSIsCiAgInRpbWUiOiAiMjAyNi0wNy0yOFQxMjowMDowMFoiLAogICJkYXRhIjogewogICAgInN0YXR1cyI6ICJQQVNTIgogIH0KfQ==",
+    "encoding": "base64",
+    "media_type": "application/json",
+    "sha256": "8fc0a50bef31abe7668aeb21704bd49cb54009582f4729154d09194f3dd4924a"
+  },
+  "recorded_at": "2026-07-29T01:33:31Z",
+  "relations": [],
+  "security": {
+    "credentials": "unknown",
+    "personal_data": "unknown",
+    "redactions": [],
+    "sensitivity": "unknown"
+  },
+  "source": {
+    "adapter_id": "org.axm.bridge.cloudevents",
+    "adapter_version": "1.0.0",
+    "producer": "urn:test",
+    "source_license": "Apache-2.0",
+    "source_revision": "1.0",
+    "source_uri": "urn:test"
+  },
+  "specversion": "axm-intake/1.0",
+  "subject": {
+    "kind": "event",
+    "logical_id": "urn:test#evt-1",
+    "parent_version_ids": [],
+    "version_id": "evt-1"
+  },
+  "type": "observation"
+}

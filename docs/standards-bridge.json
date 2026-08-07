@@ -1,0 +1,146 @@
+{
+  "schema_version": "axm-standards-bridge/1",
+  "generated_at": "2026-07-28",
+  "floor": "axm-intake/1.0",
+  "policy": {
+    "adapter_authority": "observation_only",
+    "exact_input_bytes_preserved": true,
+    "network_access_by_builtin_bridges": false,
+    "genesis_identity_may_be_assigned_by_adapter": false,
+    "completeness_must_be_scoped_and_reconciled": true,
+    "mutable_projection_is_authoritative": false
+  },
+  "bridges": [
+    {
+      "id": "cloudevents",
+      "role": "event envelope",
+      "license": "Apache-2.0",
+      "status": "built-in",
+      "input": "CloudEvents structured JSON",
+      "subject_kind": "event",
+      "axm_preserves": ["exact input bytes", "event identity", "source", "type", "subject", "time", "causal extensions"],
+      "axm_does_not_infer": ["truth", "authorization", "archive completeness"]
+    },
+    {
+      "id": "otel-openinference",
+      "role": "LLM and agent execution traces",
+      "license": "Apache-2.0",
+      "status": "built-in",
+      "input": "OpenTelemetry span JSON with optional OpenInference attributes",
+      "subject_kind": "agent_trace",
+      "axm_preserves": ["trace id", "span id", "parent span", "service", "provider", "model", "OpenInference span kind"],
+      "axm_does_not_infer": ["semantic correctness", "human authority", "safe disclosure of sensitive attributes"]
+    },
+    {
+      "id": "openlineage",
+      "role": "job, run, and dataset lineage",
+      "license": "Apache-2.0",
+      "status": "built-in",
+      "input": "OpenLineage RunEvent JSON",
+      "subject_kind": "job",
+      "axm_preserves": ["job namespace", "job name", "run id", "parent run", "input datasets", "output datasets"],
+      "axm_does_not_infer": ["approval", "dataset truth", "causal business outcome"]
+    },
+    {
+      "id": "in-toto-slsa",
+      "role": "artifact and build provenance",
+      "license": "Apache-2.0",
+      "status": "built-in",
+      "input": "in-toto Statement JSON including SLSA predicates",
+      "subject_kind": "attestation",
+      "axm_preserves": ["statement type", "predicate type", "artifact subject", "artifact digest", "builder", "materials"],
+      "axm_does_not_infer": ["authorization", "fitness for use", "deployment", "outcome"]
+    },
+    {
+      "id": "mcp",
+      "role": "model-to-tool and resource protocol",
+      "license": "MIT",
+      "status": "built-in",
+      "input": "MCP JSON-RPC message",
+      "subject_kind": "protocol_message",
+      "axm_preserves": ["session correlation", "method", "request id", "result or error presence"],
+      "axm_does_not_infer": ["permission to execute", "human approval", "tool result truth"]
+    },
+    {
+      "id": "a2a",
+      "role": "agent task collaboration",
+      "license": "Apache-2.0",
+      "status": "built-in",
+      "input": "A2A task or task event JSON",
+      "subject_kind": "agent_task",
+      "axm_preserves": ["context id", "task id", "parent task", "state", "timestamp"],
+      "axm_does_not_infer": ["human mandate", "completion quality", "accepted outcome"]
+    },
+    {
+      "id": "ag-ui",
+      "role": "agent-to-user event stream",
+      "license": "MIT",
+      "status": "built-in",
+      "input": "AG-UI event JSON",
+      "subject_kind": "agent_task",
+      "axm_preserves": ["thread", "run", "event type", "message id", "tool-call id"],
+      "axm_does_not_infer": ["human approval from interface proximity", "tool authority", "semantic success"]
+    },
+    {
+      "id": "ro-crate",
+      "role": "portable research-object metadata",
+      "license": "Apache-2.0",
+      "status": "built-in",
+      "input": "RO-Crate JSON-LD metadata",
+      "subject_kind": "research_object",
+      "axm_preserves": ["crate identity", "root dataset", "entity count", "publication or modification time"],
+      "axm_does_not_infer": ["payload completeness without package validation", "license compatibility", "claim truth"]
+    },
+    {
+      "id": "warc-wacz",
+      "role": "browser and HTTP preservation",
+      "license": "standards plus implementation-specific",
+      "status": "planned-profile",
+      "input": "WARC records or WACZ package",
+      "subject_kind": "web_capture",
+      "commodities": ["warcio", "py-wacz", "Webrecorder"],
+      "axm_preserves": ["package digest", "capture scope", "record locators", "replay QA receipt"],
+      "axm_does_not_infer": ["account completeness", "safe publication", "provider endorsement"]
+    },
+    {
+      "id": "ocfl-bagit",
+      "role": "long-term object versioning and transfer",
+      "license": "standards plus implementation-specific",
+      "status": "planned-profile",
+      "input": "OCFL object or BagIt bag",
+      "subject_kind": "artifact",
+      "axm_preserves": ["inventory digest", "object version", "payload manifest", "validation receipt"],
+      "axm_does_not_infer": ["Genesis verification", "rights to retain", "semantic equivalence across migrations"]
+    },
+    {
+      "id": "spdx-cyclonedx",
+      "role": "software component and dependency declarations",
+      "license": "standards plus implementation-specific",
+      "status": "planned-bridge",
+      "input": "SPDX or CycloneDX document",
+      "subject_kind": "artifact",
+      "axm_preserves": ["document digest", "component identities", "relationships", "declared licenses"],
+      "axm_does_not_infer": ["vulnerability absence", "license legal conclusion", "artifact provenance without attestation"]
+    },
+    {
+      "id": "sigstore-rekor-scitt",
+      "role": "external signature transparency and witnessing",
+      "license": "standards plus implementation-specific",
+      "status": "planned-witness",
+      "input": "inclusion proof or signed transparency statement",
+      "subject_kind": "attestation",
+      "axm_preserves": ["target digest", "log identity", "inclusion proof", "witness time"],
+      "axm_does_not_infer": ["underlying claim truth", "publisher authority outside policy", "permanent validity without renewal"]
+    },
+    {
+      "id": "automerge-yjs",
+      "role": "offline multi-writer synchronization",
+      "license": "MIT",
+      "status": "external-projection-substrate",
+      "input": "CRDT change stream",
+      "subject_kind": "event",
+      "axm_preserves": ["change bytes", "actor identity", "causal parents", "projection checkpoint"],
+      "axm_does_not_infer": ["authority to rewrite evidence", "global total order", "Genesis identity"]
+    }
+  ]
+}

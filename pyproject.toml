@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "axm-core"
-version = "1.1.0"
-description = "AXM orchestration hub: CLI host, Forge ingestion, Spectra query engine"
+version = "1.2.0"
+description = "AXM orchestration hub: CLI host, universal intake floor, Forge ingestion, Spectra query engine"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
@@ -52,15 +52,21 @@ dev = [
 ]
 
 # ── Entry points ──────────────────────────────────────────────────────────────
-# `axm` is the unified CLI host.  Spokes attach via axm.spokes entry-point group.
+# `axm` is the unified CLI host. Spokes attach via axm.spokes entry-point group.
+# `axm-intake` is the language-neutral pre-shard compatibility floor.
 # `axm-forge` is the ingestion CLI, kept as its own command for direct use.
 [project.scripts]
-axm       = "axm_core.cli:main"
-axm-forge = "axm_forge.cli.main:main"
+axm        = "axm_core.cli:main"
+axm-intake = "axm_core.intake.cli:main"
+axm-forge  = "axm_forge.cli.main:main"
 
-# ── Package discovery ─────────────────────────────────────────────────────────
+# Optional Python intake adapters register here from their own package:
+# [project.entry-points."axm.intake_adapters"]
+# my_adapter = "my_package.adapter:adapter"
+
+# ── Package discovery ──────────────────────────────────────────────────────────
 # axm-core owns:
-#   axm_core/        the CLI host and plugin discovery (src/axm_core/)
+#   axm_core/        the CLI host + universal intake floor (src/axm_core/)
 #   axm_forge/       ingestion + extraction (forge/axm_forge/)
 #   axiom_runtime/   Spectra query engine (spectra/axiom_runtime/)
 #

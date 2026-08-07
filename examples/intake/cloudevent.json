@@ -1,0 +1,10 @@
+{
+  "specversion": "1.0",
+  "id": "evt-1",
+  "source": "urn:test",
+  "type": "example",
+  "time": "2026-07-28T12:00:00Z",
+  "data": {
+    "status": "PASS"
+  }
+}
