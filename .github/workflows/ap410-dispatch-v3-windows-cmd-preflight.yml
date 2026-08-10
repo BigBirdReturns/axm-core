@@ -89,30 +89,39 @@ jobs:
           set "BOOTSTRAP=bootstrap_probe.py"
           set "ANCHOR=DISPATCH_ANCHOR.json"
           set "RECEIPT=DISPATCH_RECEIPT.json"
+          set "PYTHONDONTWRITEBYTECODE=1"
+          set "PYTHON_EXE="
+          set "PYTHON_SELECTOR="
+          for /f "delims=" %%P in ('where py 2^>nul') do if not defined PYTHON_EXE set "PYTHON_EXE=%%P"
+          if not defined PYTHON_EXE goto python_path
+          set "PYTHON_SELECTOR=-3"
+          "%PYTHON_EXE%" %PYTHON_SELECTOR% -c "import sys;raise SystemExit(0 if sys.version_info>=(3,11) else 1)" >nul 2>nul
+          if errorlevel 1 goto python_path
+          goto python_ready
+          :python_path
+          set "PYTHON_EXE="
+          set "PYTHON_SELECTOR="
+          for /f "delims=" %%P in ('where python 2^>nul') do if not defined PYTHON_EXE set "PYTHON_EXE=%%P"
+          if not defined PYTHON_EXE (echo REFUSED: Python 3.11 or newer required & exit /b 85)
+          "%PYTHON_EXE%" -c "import sys;raise SystemExit(0 if sys.version_info>=(3,11) else 1)" >nul 2>nul
+          if errorlevel 1 (echo REFUSED: Python 3.11 or newer required & exit /b 85)
+          :python_ready
           call :verify_hash "%~dp0%PAYLOAD%" "__PAYLOAD_SHA__" 81 payload || exit /b %ERRORLEVEL%
           call :verify_hash "%~dp0%BOOTSTRAP%" "__BOOTSTRAP_SHA__" 82 bootstrap || exit /b %ERRORLEVEL%
           call :verify_hash "%~dp0%ANCHOR%" "__ANCHOR_SHA__" 83 anchor || exit /b %ERRORLEVEL%
           call :verify_hash "%~dp0%RECEIPT%" "__RECEIPT_SHA__" 84 receipt || exit /b %ERRORLEVEL%
-          set "PYTHONDONTWRITEBYTECODE=1"
-          where py >nul 2>nul
-          if errorlevel 1 goto python_path
-          py -3 -c "import sys;raise SystemExit(0 if sys.version_info>=(3,11) else 1)" >nul 2>nul
-          if errorlevel 1 goto python_path
-          py -3 "%~dp0%BOOTSTRAP%" --mode __MODE__ --dispatch-root "%~dp0"
-          set "RC=%ERRORLEVEL%"
-          exit /b %RC%
-          :python_path
-          where python >nul 2>nul
-          if errorlevel 1 (echo REFUSED: Python 3.11 or newer required & exit /b 85)
-          python -c "import sys;raise SystemExit(0 if sys.version_info>=(3,11) else 1)" >nul 2>nul
-          if errorlevel 1 (echo REFUSED: Python 3.11 or newer required & exit /b 85)
-          python "%~dp0%BOOTSTRAP%" --mode __MODE__ --dispatch-root "%~dp0"
+          "%PYTHON_EXE%" %PYTHON_SELECTOR% "%~dp0%BOOTSTRAP%" --mode __MODE__ --dispatch-root "%~dp0"
           set "RC=%ERRORLEVEL%"
           exit /b %RC%
           :verify_hash
           set "AP410_HASH_TARGET=%~1"
           set "OBSERVED_HASH="
-          for /f "usebackq delims=" %%H in (`powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop';(Get-FileHash -Algorithm SHA256 -LiteralPath $env:AP410_HASH_TARGET).Hash.ToLowerInvariant()"`) do set "OBSERVED_HASH=%%H"
+          set "AP410_HASH_OUT=%TEMP%\ap410-hash-%RANDOM%-%RANDOM%.txt"
+          "%PYTHON_EXE%" %PYTHON_SELECTOR% -c "import hashlib,os,pathlib;pathlib.Path(os.environ['AP410_HASH_OUT']).write_text(hashlib.sha256(pathlib.Path(os.environ['AP410_HASH_TARGET']).read_bytes()).hexdigest(),encoding='ascii')" >nul 2>nul
+          if errorlevel 1 (if exist "%AP410_HASH_OUT%" del /f /q "%AP410_HASH_OUT%" >nul 2>nul & echo REFUSED: %~4 hash unavailable & exit /b %~3)
+          if not exist "%AP410_HASH_OUT%" (echo REFUSED: %~4 hash unavailable & exit /b %~3)
+          set /p "OBSERVED_HASH="<"%AP410_HASH_OUT%"
+          del /f /q "%AP410_HASH_OUT%" >nul 2>nul
           if not defined OBSERVED_HASH (echo REFUSED: %~4 hash unavailable & exit /b %~3)
           if /I not "%OBSERVED_HASH%"=="%~2" (echo REFUSED: %~4 digest drift & exit /b %~3)
           exit /b 0
@@ -132,8 +141,10 @@ jobs:
           Write-Launcher -Mode resume -Destination $resume
 
           function Invoke-Cmd([string] $Script) {
-            & cmd.exe /d /c ('"' + $Script + '"')
-            return $LASTEXITCODE
+            $output = @(& cmd.exe /d /c ('"' + $Script + '"') 2>&1 | ForEach-Object { "$_" })
+            $code = [int]$LASTEXITCODE
+            $script:LastCmdOutput = $output
+            return $code
           }
 
           function Assert-Exit([string] $Label, [int] $Observed, [int] $Expected) {
@@ -162,7 +173,7 @@ jobs:
             throw 'Resume invocation record drift'
           }
 
-          # Actual PowerShell digest refusal codes.
+          # Actual digest refusal codes through the admitted Python hash engine.
           Add-Content -LiteralPath $payload -Value 'drift' -NoNewline -Encoding utf8
           $rc = Invoke-Cmd $fresh
           Assert-Exit 'payload drift' $rc 81
@@ -244,7 +255,9 @@ jobs:
             os_version = $os.Version
             os_build = $os.BuildNumber
             fixture_root = $root
-            launcher_structure = 'dispatch_v3_exact_control_flow_with_probe_hash_coordinates'
+            launcher_structure = 'dispatch_v4_python_hash_control_flow_with_probe_hash_coordinates'
+            predecessor_refusal = 'windows_server_2025_powershell_get_file_hash_unavailable'
+            hash_engine = 'admitted_python_hashlib'
             results = $results
             physical_observation_executed = $false
             windows_process_admission_observed = $false
@@ -259,6 +272,7 @@ jobs:
           Get-ChildItem -LiteralPath $root | Select-Object Name, Length | Format-Table -AutoSize
 
       - name: Upload preflight evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ap410-dispatch-v3-windows-cmd-preflight
