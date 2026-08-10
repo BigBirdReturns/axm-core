@@ -1,0 +1,246 @@
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
+
+$root = Join-Path $env:RUNNER_TEMP 'AP410 Dispatch Probe With Spaces'
+if (Test-Path -LiteralPath $root) {
+  Remove-Item -LiteralPath $root -Recurse -Force
+}
+New-Item -ItemType Directory -Path $root | Out-Null
+
+$payload = Join-Path $root 'payload-probe.bin'
+$bootstrap = Join-Path $root 'bootstrap_probe.py'
+$anchor = Join-Path $root 'DISPATCH_ANCHOR.json'
+$receipt = Join-Path $root 'DISPATCH_RECEIPT.json'
+
+Set-Content -LiteralPath $payload -Value 'payload-probe-v3' -NoNewline -Encoding utf8
+Set-Content -LiteralPath $anchor -Value '{"probe":"anchor"}' -NoNewline -Encoding utf8
+Set-Content -LiteralPath $receipt -Value '{"probe":"receipt"}' -NoNewline -Encoding utf8
+
+@'
+import argparse
+import json
+import os
+import pathlib
+import sys
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", choices=("fresh", "resume"), required=True)
+parser.add_argument("--dispatch-root", required=True)
+args = parser.parse_args()
+root = pathlib.Path(args.dispatch_root).resolve()
+record = {
+    "mode": args.mode,
+    "dispatch_root": str(root),
+    "python": sys.executable,
+    "python_version": list(sys.version_info[:3]),
+    "dont_write_bytecode": os.environ.get("PYTHONDONTWRITEBYTECODE"),
+}
+(root / f"invocation-{args.mode}.json").write_text(
+    json.dumps(record, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+raise SystemExit(17 if args.mode == "fresh" else 23)
+'@ | Set-Content -LiteralPath $bootstrap -NoNewline -Encoding utf8
+
+function Get-Sha([string] $Path) {
+  return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+$payloadSha = Get-Sha $payload
+$bootstrapSha = Get-Sha $bootstrap
+$anchorSha = Get-Sha $anchor
+$receiptSha = Get-Sha $receipt
+
+function Write-Launcher([string] $Mode, [string] $Destination) {
+  $template = @'
+@echo off
+setlocal EnableExtensions DisableDelayedExpansion
+cd /d "%~dp0"
+set "PAYLOAD=payload-probe.bin"
+set "BOOTSTRAP=bootstrap_probe.py"
+set "ANCHOR=DISPATCH_ANCHOR.json"
+set "RECEIPT=DISPATCH_RECEIPT.json"
+set "PYTHONDONTWRITEBYTECODE=1"
+set "PYTHON_EXE="
+set "PYTHON_SELECTOR="
+for /f "delims=" %%P in ('where py 2^>nul') do if not defined PYTHON_EXE set "PYTHON_EXE=%%P"
+if not defined PYTHON_EXE goto python_path
+set "PYTHON_SELECTOR=-3"
+"%PYTHON_EXE%" %PYTHON_SELECTOR% -c "import sys;raise SystemExit(0 if sys.version_info>=(3,11) else 1)" >nul 2>nul
+if errorlevel 1 goto python_path
+goto python_ready
+:python_path
+set "PYTHON_EXE="
+set "PYTHON_SELECTOR="
+for /f "delims=" %%P in ('where python 2^>nul') do if not defined PYTHON_EXE set "PYTHON_EXE=%%P"
+if not defined PYTHON_EXE (echo REFUSED: Python 3.11 or newer required & exit /b 85)
+"%PYTHON_EXE%" -c "import sys;raise SystemExit(0 if sys.version_info>=(3,11) else 1)" >nul 2>nul
+if errorlevel 1 (echo REFUSED: Python 3.11 or newer required & exit /b 85)
+:python_ready
+call :verify_hash "%~dp0%PAYLOAD%" "__PAYLOAD_SHA__" 81 payload || exit /b %ERRORLEVEL%
+call :verify_hash "%~dp0%BOOTSTRAP%" "__BOOTSTRAP_SHA__" 82 bootstrap || exit /b %ERRORLEVEL%
+call :verify_hash "%~dp0%ANCHOR%" "__ANCHOR_SHA__" 83 anchor || exit /b %ERRORLEVEL%
+call :verify_hash "%~dp0%RECEIPT%" "__RECEIPT_SHA__" 84 receipt || exit /b %ERRORLEVEL%
+"%PYTHON_EXE%" %PYTHON_SELECTOR% "%~dp0%BOOTSTRAP%" --mode __MODE__ --dispatch-root "%~dp0"
+set "RC=%ERRORLEVEL%"
+exit /b %RC%
+:verify_hash
+set "AP410_HASH_TARGET=%~1"
+set "OBSERVED_HASH="
+set "AP410_HASH_OUT=%TEMP%\ap410-hash-%RANDOM%-%RANDOM%.txt"
+"%PYTHON_EXE%" %PYTHON_SELECTOR% -c "import hashlib,os,pathlib;pathlib.Path(os.environ['AP410_HASH_OUT']).write_text(hashlib.sha256(pathlib.Path(os.environ['AP410_HASH_TARGET']).read_bytes()).hexdigest(),encoding='ascii')"
+if errorlevel 1 (if exist "%AP410_HASH_OUT%" del /f /q "%AP410_HASH_OUT%" >nul 2>nul & echo REFUSED: %~4 hash unavailable & exit /b %~3)
+if not exist "%AP410_HASH_OUT%" (echo REFUSED: %~4 hash unavailable & exit /b %~3)
+set /p "OBSERVED_HASH="<"%AP410_HASH_OUT%"
+del /f /q "%AP410_HASH_OUT%" >nul 2>nul
+if not defined OBSERVED_HASH (echo REFUSED: %~4 hash unavailable & exit /b %~3)
+if /I not "%OBSERVED_HASH%"=="%~2" (echo REFUSED: %~4 digest drift & exit /b %~3)
+exit /b 0
+'@
+  $content = $template.TrimStart() `
+    -replace '__PAYLOAD_SHA__', $payloadSha `
+    -replace '__BOOTSTRAP_SHA__', $bootstrapSha `
+    -replace '__ANCHOR_SHA__', $anchorSha `
+    -replace '__RECEIPT_SHA__', $receiptSha `
+    -replace '__MODE__', $Mode
+  [System.IO.File]::WriteAllText($Destination, $content, [System.Text.Encoding]::ASCII)
+}
+
+$fresh = Join-Path $root 'RUN-AP410-PHYSICAL-EXECUTION-AND-DOUBLE-INTAKE.cmd'
+$resume = Join-Path $root 'RESUME-AP410-PHYSICAL-EXECUTION-AND-DOUBLE-INTAKE.cmd'
+Write-Launcher -Mode fresh -Destination $fresh
+Write-Launcher -Mode resume -Destination $resume
+
+$cmdLog = Join-Path $root 'cmd-output.log'
+function Invoke-Cmd([string] $Script) {
+  $output = @(& cmd.exe /d /c ('"' + $Script + '"') 2>&1 | ForEach-Object { "$_" })
+  $code = [int]$LASTEXITCODE
+  $script:LastCmdOutput = $output
+  @("SCRIPT=$Script", "EXIT=$code") + $output + @('---') | Add-Content -LiteralPath $cmdLog -Encoding utf8
+  return $code
+}
+
+function Assert-Exit([string] $Label, [int] $Observed, [int] $Expected) {
+  if ($Observed -ne $Expected) {
+    $script:LastCmdOutput | ForEach-Object { Write-Host "CMD> $_" }
+    throw "$Label returned $Observed, expected $Expected"
+  }
+}
+
+$originalPath = $env:PATH
+$results = [ordered]@{}
+
+# Primary py.exe route.
+$rc = Invoke-Cmd $fresh
+Assert-Exit 'fresh py route' $rc 17
+$results.fresh_py = $rc
+$freshRecord = Get-Content -LiteralPath (Join-Path $root 'invocation-fresh.json') -Raw | ConvertFrom-Json
+if ($freshRecord.mode -ne 'fresh' -or $freshRecord.dont_write_bytecode -ne '1') {
+  throw 'Fresh invocation record drift'
+}
+
+$rc = Invoke-Cmd $resume
+Assert-Exit 'resume py route' $rc 23
+$results.resume_py = $rc
+$resumeRecord = Get-Content -LiteralPath (Join-Path $root 'invocation-resume.json') -Raw | ConvertFrom-Json
+if ($resumeRecord.mode -ne 'resume' -or $resumeRecord.dont_write_bytecode -ne '1') {
+  throw 'Resume invocation record drift'
+}
+
+# Actual digest refusal codes through the admitted Python hash engine.
+Add-Content -LiteralPath $payload -Value 'drift' -NoNewline -Encoding utf8
+$rc = Invoke-Cmd $fresh
+Assert-Exit 'payload drift' $rc 81
+$results.payload_drift = $rc
+Set-Content -LiteralPath $payload -Value 'payload-probe-v3' -NoNewline -Encoding utf8
+
+Add-Content -LiteralPath $bootstrap -Value '# drift' -NoNewline -Encoding utf8
+$rc = Invoke-Cmd $fresh
+Assert-Exit 'bootstrap drift' $rc 82
+$results.bootstrap_drift = $rc
+@'
+import argparse
+import json
+import os
+import pathlib
+import sys
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mode", choices=("fresh", "resume"), required=True)
+parser.add_argument("--dispatch-root", required=True)
+args = parser.parse_args()
+root = pathlib.Path(args.dispatch_root).resolve()
+record = {
+    "mode": args.mode,
+    "dispatch_root": str(root),
+    "python": sys.executable,
+    "python_version": list(sys.version_info[:3]),
+    "dont_write_bytecode": os.environ.get("PYTHONDONTWRITEBYTECODE"),
+}
+(root / f"invocation-{args.mode}.json").write_text(
+    json.dumps(record, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+raise SystemExit(17 if args.mode == "fresh" else 23)
+'@ | Set-Content -LiteralPath $bootstrap -NoNewline -Encoding utf8
+
+Add-Content -LiteralPath $anchor -Value 'drift' -NoNewline -Encoding utf8
+$rc = Invoke-Cmd $fresh
+Assert-Exit 'anchor drift' $rc 83
+$results.anchor_drift = $rc
+Set-Content -LiteralPath $anchor -Value '{"probe":"anchor"}' -NoNewline -Encoding utf8
+
+Add-Content -LiteralPath $receipt -Value 'drift' -NoNewline -Encoding utf8
+$rc = Invoke-Cmd $fresh
+Assert-Exit 'receipt drift' $rc 84
+$results.receipt_drift = $rc
+Set-Content -LiteralPath $receipt -Value '{"probe":"receipt"}' -NoNewline -Encoding utf8
+
+# Force the fallback python.exe branch by excluding Windows\py.exe.
+$pythonDir = Split-Path -Parent (Get-Command python).Source
+$env:PATH = "$pythonDir;$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+if (Get-Command py -ErrorAction SilentlyContinue) {
+  throw 'py.exe unexpectedly remained on fallback PATH'
+}
+$rc = Invoke-Cmd $fresh
+Assert-Exit 'fresh python fallback' $rc 17
+$results.fresh_python_fallback = $rc
+
+# Force the Python floor refusal through a fake fallback executable.
+$fake = Join-Path $root 'fake-python'
+New-Item -ItemType Directory -Path $fake | Out-Null
+'@echo off
+exit /b 1
+' | Set-Content -LiteralPath (Join-Path $fake 'python.cmd') -NoNewline -Encoding ascii
+$env:PATH = "$fake;$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+$rc = Invoke-Cmd $fresh
+Assert-Exit 'python floor refusal' $rc 85
+$results.python_floor_refusal = $rc
+$env:PATH = $originalPath
+
+$os = Get-CimInstance Win32_OperatingSystem
+$record = [ordered]@{
+  format = 'axm-aperture-ap410-dispatch-v3-windows-cmd-preflight/1'
+  authority = 'hosted_windows_cmd_shell_semantics_only'
+  runner = $env:RUNNER_NAME
+  image_os = $env:ImageOS
+  image_version = $env:ImageVersion
+  os_caption = $os.Caption
+  os_version = $os.Version
+  os_build = $os.BuildNumber
+  fixture_root = $root
+  launcher_structure = 'dispatch_v4_python_hash_control_flow_with_probe_hash_coordinates'
+  predecessor_refusal = 'windows_server_2025_powershell_get_file_hash_unavailable'
+  hash_engine = 'admitted_python_hashlib'
+  results = $results
+  physical_observation_executed = $false
+  windows_process_admission_observed = $false
+  canonical_ap410_accepted = $false
+  canonical_g3_accepted = $false
+  accepted_gates = @('G0', 'G1', 'G2')
+  status = 'PASS_HOSTED_WINDOWS_CMD_SHELL_SEMANTICS_ONLY'
+}
+$record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $root 'WINDOWS_CMD_PREFLIGHT.json') -Encoding utf8
+Copy-Item -LiteralPath $fresh -Destination (Join-Path $root 'fresh-launcher.cmd.txt')
+Copy-Item -LiteralPath $resume -Destination (Join-Path $root 'resume-launcher.cmd.txt')
+Get-ChildItem -LiteralPath $root | Select-Object Name, Length | Format-Table -AutoSize
