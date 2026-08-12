@@ -1,0 +1,78 @@
+name: Aperture ownerless repository creation probe
+
+on:
+  push:
+    branches:
+      - agent/aperture-ownerless-repo-create-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Attempt bounded empty private repository creation
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_OWNER: BigBirdReturns
+          TARGET_REPO: axm-aperture
+        shell: bash
+        run: |
+          set -u
+          mkdir -p out
+
+          if gh api "repos/${TARGET_OWNER}/${TARGET_REPO}" >out/preexisting.json 2>out/preexisting.err; then
+            jq -n \
+              --arg status "REFUSED_TARGET_ALREADY_EXISTS" \
+              --arg repository "${TARGET_OWNER}/${TARGET_REPO}" \
+              --arg workflow_sha "${GITHUB_SHA}" \
+              '{format:"axm-aperture-ownerless-repository-creation-probe/1",status:$status,repository:$repository,workflow_sha:$workflow_sha,created:false}' \
+              >out/PROBE_RECEIPT.json
+            echo "result=preexisting" >>"${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          set +e
+          gh api --method POST /user/repos \
+            -f name="${TARGET_REPO}" \
+            -f description="AXM Aperture durable source, history, releases, and integration contracts" \
+            -F private=true \
+            -F auto_init=false \
+            >out/create.json 2>out/create.err
+          rc=$?
+          set -e
+
+          if [[ ${rc} -eq 0 ]]; then
+            gh api "repos/${TARGET_OWNER}/${TARGET_REPO}" >out/readback.json
+            jq -n \
+              --arg status "PASS_EMPTY_PRIVATE_REPOSITORY_CREATED" \
+              --arg repository "${TARGET_OWNER}/${TARGET_REPO}" \
+              --arg workflow_sha "${GITHUB_SHA}" \
+              --argjson create_response "$(cat out/create.json)" \
+              --argjson readback "$(cat out/readback.json)" \
+              '{format:"axm-aperture-ownerless-repository-creation-probe/1",status:$status,repository:$repository,workflow_sha:$workflow_sha,created:true,create_response:$create_response,readback:$readback}' \
+              >out/PROBE_RECEIPT.json
+            echo "result=created" >>"${GITHUB_OUTPUT}"
+          else
+            jq -n \
+              --arg status "REFUSED_GITHUB_TOKEN_CANNOT_CREATE_USER_REPOSITORY" \
+              --arg repository "${TARGET_OWNER}/${TARGET_REPO}" \
+              --arg workflow_sha "${GITHUB_SHA}" \
+              --argjson exit_code "${rc}" \
+              --rawfile stderr out/create.err \
+              '{format:"axm-aperture-ownerless-repository-creation-probe/1",status:$status,repository:$repository,workflow_sha:$workflow_sha,created:false,exit_code:$exit_code,stderr:$stderr}' \
+              >out/PROBE_RECEIPT.json
+            echo "result=refused" >>"${GITHUB_OUTPUT}"
+          fi
+
+          sha256sum out/PROBE_RECEIPT.json >out/PROBE_RECEIPT.json.sha256
+
+      - name: Upload probe custody
+        uses: actions/upload-artifact@v4
+        with:
+          name: aperture-ownerless-repo-create-probe
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
