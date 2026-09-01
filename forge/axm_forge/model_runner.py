@@ -435,6 +435,15 @@ def _invoke_command(request: GenerationRequest, model: str) -> tuple[str, str, d
     if not command_text:
         raise ModelRunnerError("AXM_MODEL_COMMAND is required for command transport")
     command = shlex.split(command_text, posix=os.name != "nt")
+    if os.name == "nt":
+        # posix=False keeps the surrounding quotes inside each token, and
+        # Windows cannot exec an argv[0] that literally begins with a quote.
+        command = [
+            token[1:-1]
+            if len(token) >= 2 and token[0] == token[-1] == '"'
+            else token
+            for token in command
+        ]
     if not command:
         raise ModelRunnerError("AXM_MODEL_COMMAND parsed to an empty command")
     envelope = {
