@@ -42,7 +42,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 STATE_SCHEMA = "axm-core/model-cache-scope-state@1"
-INVALIDATION_SCHEMA = "axm-core/model-cache-scope-invalidation@1"
+INVALIDATION_SCHEMA = "axm-core/model-cache-scope-invalidation@2"
+CLEANUP_SCHEMA = "axm-core/model-cache-scope-cleanup@1"
 INSPECTION_SCHEMA = "axm-core/model-cache-scope-inspection@1"
 
 _LOCK_TIMEOUT_SECONDS = 30.0
@@ -332,6 +333,40 @@ def inspect_cache_scope(namespace: str, scope: str, *, root: Path | None = None)
     }
 
 
+def _seal_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Return a receipt whose digest covers every persisted claim."""
+    body = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
+    receipt["receipt_sha256"] = _sha256(_canonical(body))
+    return receipt
+
+
+def _receipt_path(
+    root: Path,
+    namespace: str,
+    scope: str,
+    invalidation_id: str,
+    kind: str,
+) -> Path:
+    return (
+        scope_dir(root, namespace, scope)
+        / "receipts"
+        / f"{invalidation_id}.{kind}.json"
+    )
+
+
+def _directory_bytes(path: Path) -> int:
+    total = 0
+    if not path.is_dir():
+        return total
+    for item in path.rglob("*"):
+        if item.is_file():
+            try:
+                total += item.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
 def invalidate_cache_scope(
     namespace: str,
     scope: str,
@@ -340,17 +375,33 @@ def invalidate_cache_scope(
     dry_run: bool = False,
     root: Path | None = None,
 ) -> Mapping[str, Any]:
-    """Retire the current generation of one exact scope. No wildcards."""
+    """Retire one exact scope generation and receipt cleanup separately.
+
+    Logical invalidation is complete when the active state advances to the next
+    epoch. Physical deletion of the retired generation is a later storage
+    outcome and receives its own chained receipt. A cleanup failure therefore
+    cannot make the retired generation readable again or rewrite the logical
+    invalidation receipt after its digest has been published.
+    """
     from axm_forge.model_runner import _cache_root
 
     namespace, scope = normalise(namespace, scope)
     if not namespace:
         raise CacheScopeError("invalidate_cache_scope requires a namespace and scope")
-    if not str(reason or "").strip():
+    reason = str(reason or "").strip()
+    if not reason:
         raise CacheScopeError("invalidate_cache_scope requires a reason")
     base = root if root is not None else _cache_root()
     if base is None:
         raise CacheScopeError("model cache is disabled (AXM_MODEL_CACHE)")
+    base = Path(base)
+    store_sha256 = cache_store_sha256(base)
+
+    retired: Path | None = None
+    retired_relative = ""
+    total_bytes = 0
+    logical: dict[str, Any]
+    logical_path: Path | None = None
 
     with _ScopeLock(base, namespace, scope):
         state = read_state(base, namespace, scope)
@@ -359,17 +410,19 @@ def invalidate_cache_scope(
         entries = [_verify_object(path, state, epoch) for path in _iter_objects(current)]
         refused = [row for row in entries if row["problems"]]
         if refused:
-            # No partial purge. The epoch is untouched.
             raise CacheScopeError(
                 "cache scope contains contradictory or corrupt entries; "
                 f"refusing to invalidate: {json.dumps(refused[:3])[:400]}"
             )
 
         total_bytes = sum(int(row.get("bytes") or 0) for row in entries)
-        request_digests = sorted({row["request_digest"] for row in entries if row["request_digest"]})
+        request_digests = sorted(
+            {row["request_digest"] for row in entries if row["request_digest"]}
+        )
+        observed_at = _utc_now()
         preview = {
             "schema": INVALIDATION_SCHEMA,
-            "cache_store_sha256": cache_store_sha256(base),
+            "cache_store_sha256": store_sha256,
             "dry_run": bool(dry_run),
             "cache_namespace": namespace,
             "cache_scope": scope,
@@ -378,27 +431,54 @@ def invalidate_cache_scope(
             "entry_count": len(entries),
             "verified_count": len(entries),
             "refused_count": 0,
-            "deleted_bytes": 0 if dry_run else total_bytes,
+            "retired_bytes": 0 if dry_run else total_bytes,
+            # Kept for callers of the @1 preview shape. Logical invalidation
+            # never claims physical deletion.
+            "deleted_bytes": 0,
             "request_digests": request_digests,
-            "prior_scope_receipt_sha256": state.get("last_invalidation_receipt_sha256", ""),
-            "reason": str(reason),
-            "observed_at": _utc_now(),
+            "prior_scope_receipt_sha256": state.get(
+                "last_invalidation_receipt_sha256", ""
+            ),
+            "reason": reason,
+            "observed_at": observed_at,
         }
         if dry_run:
-            # A zero-entry scope is still invalidatable; report it truthfully.
             return preview
 
         invalidation_id = _sha256(
-            _canonical({"scope": scope, "namespace": namespace, "epoch": epoch,
-                        "at": preview["observed_at"], "reason": reason})
+            _canonical(
+                {
+                    "scope": scope,
+                    "namespace": namespace,
+                    "epoch": epoch,
+                    "at": observed_at,
+                    "reason": reason,
+                }
+            )
         )[:32]
         retired = scope_dir(base, namespace, scope) / "retired" / invalidation_id
+        retired_relative = f"retired/{invalidation_id}"
         moved = False
         if current.is_dir():
             retired.parent.mkdir(parents=True, exist_ok=True)
             os.replace(current, retired)
             moved = True
+
+        logical = _seal_receipt(
+            {
+                **preview,
+                "invalidation_id": invalidation_id,
+                "retired_generation": retired_relative if moved else "",
+            }
+        )
+        logical_path = _receipt_path(
+            base, namespace, scope, invalidation_id, "invalidation"
+        )
         try:
+            # Receipt first is fail-safe: a crash may leave an unreferenced
+            # receipt, but never a state transition whose authority receipt is
+            # missing. The state points to it only after both bytes exist.
+            _atomic_write(logical_path, _canonical(logical) + b"\n")
             new_state = _seal_state(
                 {
                     "schema": STATE_SCHEMA,
@@ -408,41 +488,91 @@ def invalidate_cache_scope(
                     "scope_sha256": _sha256(scope),
                     "current_epoch": epoch + 1,
                     "previous_state_sha256": state.get("state_sha256", ""),
-                    "last_invalidation_receipt_sha256": "",
+                    "last_invalidation_receipt_sha256": logical[
+                        "receipt_sha256"
+                    ],
                 }
             )
-            receipt = dict(preview)
-            receipt["invalidation_id"] = invalidation_id
-            receipt_sha = _sha256(_canonical(receipt))
-            receipt["receipt_sha256"] = receipt_sha
-            new_state["last_invalidation_receipt_sha256"] = receipt_sha
-            new_state = _seal_state(new_state)
-            _atomic_write(_state_path(base, namespace, scope), _canonical(new_state) + b"\n")
+            _atomic_write(
+                _state_path(base, namespace, scope),
+                _canonical(new_state) + b"\n",
+            )
         except Exception:
-            if moved:
-                # Put the generation back before releasing the lock.
+            if logical_path is not None:
+                logical_path.unlink(missing_ok=True)
+            if moved and retired is not None:
                 os.replace(retired, current)
             raise
 
-        _atomic_write(
-            scope_dir(base, namespace, scope) / "receipts" / f"{invalidation_id}.json",
-            _canonical(receipt) + b"\n",
-        )
+    # The scope lock is deliberately released before physical cleanup. The
+    # active state already points at the next generation, so a slow filesystem
+    # deletion cannot block readers or writers of the new epoch.
+    physically_deleted = True
+    deleted_bytes = 0
+    inaccessible_residue = ""
+    cleanup_error_type = ""
+    if retired is not None and retired.is_dir():
+        try:
+            shutil.rmtree(retired)
+            deleted_bytes = total_bytes
+        except OSError as exc:
+            physically_deleted = False
+            remaining = _directory_bytes(retired)
+            deleted_bytes = max(0, total_bytes - remaining)
+            inaccessible_residue = retired_relative
+            cleanup_error_type = type(exc).__name__
 
-        residue = ""
-        if moved:
-            try:
-                shutil.rmtree(retired)
-            except OSError as exc:
-                # The epoch already advanced, so the generation is unreachable.
-                # Report residue rather than claiming physical deletion.
-                residue = f"{retired}: {exc}"
-        receipt["inaccessible_residue"] = residue
-        receipt["physically_deleted"] = not residue
-        return receipt
+    cleanup = _seal_receipt(
+        {
+            "schema": CLEANUP_SCHEMA,
+            "invalidation_receipt_sha256": logical["receipt_sha256"],
+            "cache_store_sha256": store_sha256,
+            "cache_namespace": namespace,
+            "cache_scope": scope,
+            "invalidation_id": logical["invalidation_id"],
+            "physically_deleted": physically_deleted,
+            "deleted_bytes": deleted_bytes,
+            "inaccessible_residue": inaccessible_residue,
+            "cleanup_error_type": cleanup_error_type,
+            "observed_at": _utc_now(),
+        }
+    )
+    cleanup_path = _receipt_path(
+        base,
+        namespace,
+        scope,
+        logical["invalidation_id"],
+        "cleanup",
+    )
+    cleanup_persisted = True
+    cleanup_write_error_type = ""
+    try:
+        _atomic_write(cleanup_path, _canonical(cleanup) + b"\n")
+    except OSError as exc:
+        # The logical invalidation is already authoritative and cannot be
+        # rolled back. Surface the missing storage witness explicitly so a
+        # caller cannot mistake the return for full receipt closure.
+        cleanup_persisted = False
+        cleanup_write_error_type = type(exc).__name__
+
+    return {
+        **logical,
+        "cleanup_receipt": cleanup if cleanup_persisted else {},
+        "cleanup_receipt_sha256": (
+            cleanup["receipt_sha256"] if cleanup_persisted else ""
+        ),
+        "cleanup_receipt_persisted": cleanup_persisted,
+        "cleanup_write_error_type": cleanup_write_error_type,
+        # Compatibility conveniences are copied from the separately sealed
+        # cleanup receipt; they are not part of the logical receipt digest.
+        "physically_deleted": physically_deleted,
+        "deleted_bytes": deleted_bytes,
+        "inaccessible_residue": inaccessible_residue,
+    }
 
 
 __all__ = [
+    "CLEANUP_SCHEMA",
     "CacheScopeError",
     "cache_store_sha256",
     "derive_cache_key",

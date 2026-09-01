@@ -117,3 +117,68 @@ def test_cache_store_identity_changes_with_root_and_unscoped_placement_survives(
     assert result.cache_key == result.receipt["request_digest"]
     assert result.receipt["cache_store_sha256"] == scope_mod.cache_store_sha256(first_root)
     assert (first_root / result.cache_key[:2] / f"{result.cache_key}.json").is_file()
+
+
+def _verify_persisted_receipt(value: dict) -> None:
+    body = {key: item for key, item in value.items() if key != "receipt_sha256"}
+    assert value["receipt_sha256"] == scope_mod._sha256(scope_mod._canonical(body))
+
+
+def test_invalidation_and_cleanup_are_separately_sealed(monkeypatch, tmp_path: Path):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "ollama-native")
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    with server() as base:
+        _generate_text(base)
+
+    result = runner.invalidate_cache_scope(NS, "plan-A", reason="separate claims")
+    receipt_dir = scope_mod.scope_dir(cache, NS, "plan-A") / "receipts"
+    logical_path = next(receipt_dir.glob("*.invalidation.json"))
+    cleanup_path = next(receipt_dir.glob("*.cleanup.json"))
+    logical = __import__("json").loads(logical_path.read_text(encoding="utf-8"))
+    cleanup = __import__("json").loads(cleanup_path.read_text(encoding="utf-8"))
+
+    _verify_persisted_receipt(logical)
+    _verify_persisted_receipt(cleanup)
+    assert logical["schema"] == scope_mod.INVALIDATION_SCHEMA
+    assert "physically_deleted" not in logical
+    assert "inaccessible_residue" not in logical
+    assert cleanup["schema"] == scope_mod.CLEANUP_SCHEMA
+    assert cleanup["invalidation_receipt_sha256"] == logical["receipt_sha256"]
+    assert cleanup["physically_deleted"] is True
+    assert cleanup["deleted_bytes"] == logical["retired_bytes"]
+    assert result["receipt_sha256"] == logical["receipt_sha256"]
+    assert result["cleanup_receipt_sha256"] == cleanup["receipt_sha256"]
+    assert result["cleanup_receipt_persisted"] is True
+
+
+def test_cleanup_failure_is_receipted_without_rolling_back_epoch(monkeypatch, tmp_path: Path):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "ollama-native")
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    with server() as base:
+        _generate_text(base)
+
+    def refuse_cleanup(_path):
+        raise OSError("simulated locked file")
+
+    monkeypatch.setattr(scope_mod.shutil, "rmtree", refuse_cleanup)
+    result = runner.invalidate_cache_scope(NS, "plan-A", reason="logical first")
+    assert result["epoch_after"] == 1
+    assert result["physically_deleted"] is False
+    assert result["deleted_bytes"] == 0
+    assert result["inaccessible_residue"].startswith("retired/")
+    assert result["cleanup_receipt_persisted"] is True
+
+    inspection = runner.inspect_cache_scope(NS, "plan-A")
+    assert inspection["current_epoch"] == 1
+    assert inspection["entry_count"] == 0
+    assert inspection["last_invalidation_receipt_sha256"] == result["receipt_sha256"]
+
+    receipt_dir = scope_mod.scope_dir(cache, NS, "plan-A") / "receipts"
+    cleanup = __import__("json").loads(
+        next(receipt_dir.glob("*.cleanup.json")).read_text(encoding="utf-8")
+    )
+    _verify_persisted_receipt(cleanup)
+    assert cleanup["physically_deleted"] is False
+    assert cleanup["inaccessible_residue"] == result["inaccessible_residue"]
