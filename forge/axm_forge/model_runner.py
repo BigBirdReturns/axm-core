@@ -21,6 +21,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from axm_forge import model_cache_scope as _scope
+from axm_forge.model_cache_scope import CacheScopeError  # re-exported
+
 CONTRACT_VERSION = "axm-core/model-runner@1"
 RECEIPT_VERSION = "axm-core/model-invocation-receipt@1"
 DEFAULT_PROFILE = "luna.semantic@1"
@@ -46,6 +49,12 @@ class GenerationRequest:
     num_ctx: int | None = None
     temperature: float = 0.0
     seed: int = 0
+    # Opaque caller-owned cache placement scope. All-or-neither; empty values
+    # preserve the unscoped contract exactly. Core never interprets them, and
+    # they never reach a provider: a semantic plan key is local operational
+    # metadata, not information the model needs.
+    cache_namespace: str = ""
+    cache_scope: str = ""
 
 
 @dataclass(frozen=True)
@@ -288,10 +297,16 @@ def _cache_material(
     }
 
 
-def _read_cache(root: Path | None, key: str) -> GenerationResult | None:
+def _read_cache(
+    root: Path | None,
+    key: str,
+    path: Path | None = None,
+    expected_request_digest: str | None = None,
+) -> GenerationResult | None:
     if root is None:
         return None
-    path = root / key[:2] / f"{key}.json"
+    if path is None:
+        path = root / key[:2] / f"{key}.json"
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -302,7 +317,14 @@ def _read_cache(root: Path | None, key: str) -> GenerationResult | None:
     if _sha256(text) != str(value.get("response_sha256", "")):
         return None
     receipt = value.get("receipt") if isinstance(value.get("receipt"), dict) else {}
-    if str(receipt.get("request_digest") or "") != key:
+    if str(receipt.get("cache_key") or "") != key:
+        return None
+    stored_request_digest = str(receipt.get("request_digest") or "")
+    if not stored_request_digest:
+        return None
+    # The semantic identity is verified explicitly. It no longer equals the
+    # cache key once scopes exist, so it cannot be checked by placement alone.
+    if expected_request_digest is not None and stored_request_digest != expected_request_digest:
         return None
     if str(receipt.get("response_sha256") or "") != _sha256(text):
         return None
@@ -339,10 +361,15 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _write_cache(root: Path | None, result: GenerationResult) -> None:
+def _write_cache(
+    root: Path | None,
+    result: GenerationResult,
+    path: Path | None = None,
+) -> None:
     if root is None:
         return
-    path = root / result.cache_key[:2] / f"{result.cache_key}.json"
+    if path is None:
+        path = root / result.cache_key[:2] / f"{result.cache_key}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     value = {
         "text": result.text,
@@ -356,7 +383,7 @@ def _write_cache(root: Path | None, result: GenerationResult) -> None:
         with tempfile.NamedTemporaryFile(
             mode="wb",
             dir=path.parent,
-            prefix=f".{path.name}.",
+            prefix=".t",
             suffix=".tmp",
             delete=False,
         ) as handle:
@@ -446,9 +473,14 @@ def _invoke_command(request: GenerationRequest, model: str) -> tuple[str, str, d
         ]
     if not command:
         raise ModelRunnerError("AXM_MODEL_COMMAND parsed to an empty command")
+    payload = asdict(request)
+    # Cache placement is local operational metadata. It must not reach the
+    # adapter's stdin envelope or any provider request.
+    payload.pop("cache_namespace", None)
+    payload.pop("cache_scope", None)
     envelope = {
         "schema": CONTRACT_VERSION,
-        **asdict(request),
+        **payload,
         "model": model,
     }
     try:
@@ -518,9 +550,12 @@ def generate(request: GenerationRequest) -> GenerationResult:
         route_identity=route_identity,
         model=model,
     )
-    cache_key = _sha256(_canonical(material))
+    request_digest = _sha256(_canonical(material))
     root = _cache_root()
-    cached = _read_cache(root, cache_key)
+
+    namespace, scope = _scope.normalise(request.cache_namespace, request.cache_scope)
+    cache_key = _scope.derive_cache_key(request_digest, namespace, scope)
+    cached = _read_cache(root, cache_key, None, request_digest)
     if cached is not None:
         return cached
 
@@ -538,7 +573,13 @@ def generate(request: GenerationRequest) -> GenerationResult:
     model_identity_match = actual_model == model
     receipt = {
         "schema": RECEIPT_VERSION,
-        "request_digest": cache_key,
+        # Semantic request identity: stable across scope invalidation.
+        "request_digest": request_digest,
+        # Physical placement identity: moves when the scope epoch advances.
+        "cache_key": cache_key,
+        "cache_namespace": namespace,
+        "cache_scope": scope,
+        "cache_epoch": 0,
         "response_sha256": response_sha256,
         "profile": request.profile,
         "purpose": request.purpose,
@@ -566,8 +607,12 @@ def generate(request: GenerationRequest) -> GenerationResult:
         cache_key=cache_key,
         receipt=receipt,
     )
-    if model_identity_match:
-        _write_cache(root, result)
+    if not model_identity_match:
+        receipt["cache_write_outcome"] = "REFUSED"
+        receipt["cache_write_reason"] = "model_identity_drift"
+        return result
+    _write_cache(root, result)
+    receipt["cache_write_outcome"] = "WRITTEN"
     return result
 
 
