@@ -77,6 +77,7 @@ def request(**overrides):
         "temperature": 0.0,
         "seed": 29,
         "max_output_tokens": 333,
+        "num_ctx": 12288,
     }
     values.update(overrides)
     return runner.GenerationRequest(**values)
@@ -102,6 +103,8 @@ def test_ollama_native_controls_and_cache(monkeypatch, tmp_path: Path):
         assert call["payload"]["options"]["temperature"] == 0.0
         assert call["payload"]["options"]["seed"] == 29
         assert call["payload"]["options"]["num_predict"] == 333
+        assert call["payload"]["options"]["num_ctx"] == 12288
+        assert result.receipt["num_ctx"] == 12288
 
         cached = runner.generate(request(base_url=base))
         assert cached.text == result.text
@@ -139,6 +142,7 @@ import json, sys
 request = json.load(sys.stdin)
 assert request['profile'] == 'luna.semantic@1'
 assert request['seed'] == 29
+assert request['num_ctx'] == 12288
 print(json.dumps({'text': '[1]', 'model': 'cli-haiku', 'usage': {'calls': 1}}))
 """,
         encoding="utf-8",
@@ -151,7 +155,8 @@ print(json.dumps({'text': '[1]', 'model': 'cli-haiku', 'usage': {'calls': 1}}))
     assert result.model == "cli-haiku"
     assert result.transport == "command"
     assert result.receipt["usage"] == {"calls": 1}
-    assert result.receipt["endpoint"] == "command://local"
+    assert result.receipt["endpoint_sha256"] == runner._sha256("command://local")
+    assert "endpoint" not in result.receipt
     assert result.receipt["route_identity"].startswith("command-sha256:")
     assert result.receipt["cacheable"] is False
 
@@ -172,6 +177,22 @@ def test_model_identity_drift_is_not_cached(monkeypatch, tmp_path: Path):
     assert not list(cache.rglob("*.json"))
 
 
+def test_cache_tamper_is_ignored(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "ollama-native")
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    with server("ollama") as base:
+        first = runner.generate(request(base_url=base))
+        cache_path = next(cache.rglob("*.json"))
+        value = json.loads(cache_path.read_text(encoding="utf-8"))
+        value["receipt"]["request_digest"] = "0" * 64
+        cache_path.write_text(json.dumps(value), encoding="utf-8")
+        second = runner.generate(request(base_url=base))
+    assert first.text == second.text
+    assert second.receipt["cache_hit"] is False
+    assert len(Handler.calls) == 2
+
+
 def test_cache_key_changes_with_schema_prompt_and_controls(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
     helper = tmp_path / "echo.py"
@@ -183,8 +204,9 @@ def test_cache_key_changes_with_schema_prompt_and_controls(monkeypatch, tmp_path
         runner.generate(request(user="other")).cache_key,
         runner.generate(request(response_schema="array@2")).cache_key,
         runner.generate(request(seed=30)).cache_key,
+        runner.generate(request(num_ctx=16384)).cache_key,
     }
-    assert len(keys) == 4
+    assert len(keys) == 5
 
 
 def test_auto_model_refuses_unknown_command_identity(monkeypatch, tmp_path: Path):
@@ -205,7 +227,48 @@ def test_describe_route_resolves_without_generation(monkeypatch, tmp_path: Path)
     monkeypatch.setenv("AXM_MODEL_NAME", "haiku-route")
     route = runner.describe_route(model="auto", profile="luna.test@1")
     assert route["transport"] == "command"
-    assert route["endpoint"] == "command://local"
+    assert route["endpoint_sha256"] == runner._sha256("command://local")
+    assert "endpoint" not in route
     assert route["model"] == "haiku-route"
     assert route["profile"] == "luna.test@1"
     assert route["route_identity"].startswith("command-sha256:")
+    assert route["num_ctx"] == 8192
+
+
+def test_describe_route_binds_configured_context_window(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "never_called.py"
+    helper.write_text("raise SystemExit(99)\n", encoding="utf-8")
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_NAME", "haiku-route")
+    monkeypatch.setenv("AXM_MODEL_NUM_CTX", "16384")
+    route = runner.describe_route(model="auto")
+    assert route["num_ctx"] == 16384
+    with pytest.raises(runner.ModelRunnerError, match="must be an integer"):
+        monkeypatch.setenv("AXM_MODEL_NUM_CTX", "broken")
+        runner.describe_route(model="auto")
+
+
+def test_receipt_usage_refuses_provider_text(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_CACHE", "off")
+    helper = tmp_path / "usage.py"
+    helper.write_text(
+        "import json, sys\n"
+        "json.load(sys.stdin)\n"
+        "print(json.dumps({\"text\": \"ok\", \"model\": \"safe-model\", "
+        "\"usage\": {\"tokens\": 12, \"prompt\": \"private body\", "
+        "\"details\": {\"cached_tokens\": 3, \"note\": \"secret\"}}}))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"'
+    )
+    monkeypatch.setenv("AXM_MODEL_NAME", "safe-model")
+    result = runner.generate(request(model="auto"))
+    assert result.receipt["usage"] == {
+        "tokens": 12,
+        "details": {"cached_tokens": 3},
+    }
+    assert "private body" not in json.dumps(result.receipt)
+    assert "secret" not in json.dumps(result.receipt)

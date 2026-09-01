@@ -12,10 +12,11 @@ import json
 import os
 import shlex
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -42,6 +43,7 @@ class GenerationRequest:
     base_url: str | None = None
     timeout: int = 180
     max_output_tokens: int = 2048
+    num_ctx: int | None = None
     temperature: float = 0.0
     seed: int = 0
 
@@ -80,6 +82,27 @@ def _sha256(value: bytes | str) -> str:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _body_free_usage(value: Any) -> Any:
+    """Retain numeric accounting while refusing provider-supplied text bodies."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, Mapping):
+        return {
+            str(key): sanitized
+            for key, item in value.items()
+            if (sanitized := _body_free_usage(item)) is not None
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            sanitized
+            for item in value
+            if (sanitized := _body_free_usage(item)) is not None
+        ]
+    return None
 
 
 def _transport(base_url: str | None) -> str:
@@ -225,6 +248,20 @@ def _cache_root() -> Path | None:
     return Path(setting) if setting else DEFAULT_CACHE
 
 
+def _resolve_num_ctx(value: int | None) -> int:
+    """Resolve the effective context window and fail closed on bad config."""
+    raw: object = (
+        os.environ.get("AXM_MODEL_NUM_CTX", "8192")
+        if value is None
+        else value
+    )
+    try:
+        resolved = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ModelRunnerError("AXM_MODEL_NUM_CTX must be an integer") from exc
+    return max(4096, resolved)
+
+
 def _cache_material(
     request: GenerationRequest,
     *,
@@ -239,7 +276,7 @@ def _cache_material(
         "purpose": request.purpose,
         "response_schema": request.response_schema,
         "transport": transport,
-        "endpoint": endpoint,
+        "endpoint_sha256": _sha256(endpoint),
         "route_identity": route_identity,
         "model": model,
         "system_sha256": _sha256(request.system),
@@ -247,6 +284,7 @@ def _cache_material(
         "temperature": float(request.temperature),
         "seed": int(request.seed),
         "max_output_tokens": int(request.max_output_tokens),
+        "num_ctx": int(request.num_ctx),
     }
 
 
@@ -264,6 +302,18 @@ def _read_cache(root: Path | None, key: str) -> GenerationResult | None:
     if _sha256(text) != str(value.get("response_sha256", "")):
         return None
     receipt = value.get("receipt") if isinstance(value.get("receipt"), dict) else {}
+    if str(receipt.get("request_digest") or "") != key:
+        return None
+    if str(receipt.get("response_sha256") or "") != _sha256(text):
+        return None
+    if receipt.get("cacheable") is not True:
+        return None
+    if receipt.get("model_identity_match") is not True:
+        return None
+    if str(receipt.get("model_actual") or "") != str(value.get("model") or ""):
+        return None
+    if str(receipt.get("transport") or "") != str(value.get("transport") or ""):
+        return None
     receipt = {**receipt, "cache_hit": True, "cache_read_at": _utc_now()}
     return GenerationResult(
         text=text,
@@ -272,6 +322,21 @@ def _read_cache(root: Path | None, key: str) -> GenerationResult | None:
         cache_key=key,
         receipt=receipt,
     )
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
 
 
 def _write_cache(root: Path | None, result: GenerationResult) -> None:
@@ -286,16 +351,31 @@ def _write_cache(root: Path | None, result: GenerationResult) -> None:
         "transport": result.transport,
         "receipt": dict(result.receipt),
     }
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_bytes(_canonical(value) + b"\n")
-    os.replace(temporary, path)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(_canonical(value) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _invoke_ollama(request: GenerationRequest, model: str, endpoint: str) -> tuple[str, str, dict[str, Any]]:
-    try:
-        num_ctx = max(4096, int(os.environ.get("AXM_MODEL_NUM_CTX", "8192")))
-    except ValueError:
-        num_ctx = 8192
     payload = {
         "model": model,
         "messages": [
@@ -307,7 +387,7 @@ def _invoke_ollama(request: GenerationRequest, model: str, endpoint: str) -> tup
         "options": {
             "temperature": float(request.temperature),
             "seed": int(request.seed),
-            "num_ctx": num_ctx,
+            "num_ctx": int(request.num_ctx),
             "num_predict": int(request.max_output_tokens),
         },
     }
@@ -399,8 +479,9 @@ def describe_route(
     profile: str = DEFAULT_PROFILE,
     base_url: str | None = None,
     timeout: int = 30,
+    num_ctx: int | None = None,
 ) -> dict[str, Any]:
-    """Resolve transport, endpoint, and actual model without generation."""
+    """Resolve a body-free route identity and actual model without generation."""
     transport = _transport(base_url)
     endpoint = _endpoint(transport, base_url)
     route_identity = _route_identity(transport, endpoint)
@@ -409,12 +490,14 @@ def describe_route(
         "schema": CONTRACT_VERSION,
         "profile": profile,
         "transport": transport,
-        "endpoint": endpoint,
+        "endpoint_sha256": _sha256(endpoint),
         "route_identity": route_identity,
         "model": actual,
+        "num_ctx": _resolve_num_ctx(num_ctx),
     }
 
 def generate(request: GenerationRequest) -> GenerationResult:
+    request = replace(request, num_ctx=_resolve_num_ctx(request.num_ctx))
     transport = _transport(request.base_url)
     endpoint = _endpoint(transport, request.base_url)
     route_identity = _route_identity(transport, endpoint)
@@ -442,6 +525,7 @@ def generate(request: GenerationRequest) -> GenerationResult:
         text, actual_model, usage = _invoke_command(request, model)
     duration_ms = round((time.monotonic() - start) * 1000, 3)
     response_sha256 = _sha256(text)
+    usage = _body_free_usage(usage) or {}
     model_identity_match = actual_model == model
     receipt = {
         "schema": RECEIPT_VERSION,
@@ -451,7 +535,7 @@ def generate(request: GenerationRequest) -> GenerationResult:
         "purpose": request.purpose,
         "response_schema": request.response_schema,
         "transport": transport,
-        "endpoint": endpoint,
+        "endpoint_sha256": _sha256(endpoint),
         "route_identity": route_identity,
         "model_requested": request.model,
         "model_actual": actual_model,
@@ -459,6 +543,7 @@ def generate(request: GenerationRequest) -> GenerationResult:
         "temperature": float(request.temperature),
         "seed": int(request.seed),
         "max_output_tokens": int(request.max_output_tokens),
+        "num_ctx": int(request.num_ctx),
         "started_at": started_at,
         "duration_ms": duration_ms,
         "cache_hit": False,
@@ -488,6 +573,7 @@ def generate_text(
     base_url: str | None = None,
     timeout: int = 180,
     max_output_tokens: int = 2048,
+    num_ctx: int | None = None,
     temperature: float = 0.0,
     seed: int = 0,
 ) -> dict[str, Any]:
@@ -503,6 +589,7 @@ def generate_text(
             base_url=base_url,
             timeout=timeout,
             max_output_tokens=max_output_tokens,
+            num_ctx=_resolve_num_ctx(num_ctx),
             temperature=temperature,
             seed=seed,
         )
