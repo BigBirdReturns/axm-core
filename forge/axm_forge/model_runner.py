@@ -193,7 +193,10 @@ def _resolve_model(requested: str, transport: str, base_url: str | None, timeout
     if transport == "ollama-native":
         base = base_url or os.environ.get("AXM_MODEL_BASE_URL") or DEFAULT_OLLAMA_URL
         return _ollama_tags(base, timeout)[0]
-    return "auto"
+    raise ModelRunnerError(
+        "model='auto' is not a stable identity for command or "
+        "openai-compatible transport; set AXM_MODEL_NAME or pass model="
+    )
 
 
 def _cache_root() -> Path | None:
@@ -368,6 +371,26 @@ def _invoke_command(request: GenerationRequest, model: str) -> tuple[str, str, d
     return text, actual, dict(usage)
 
 
+
+def describe_route(
+    *,
+    model: str = "auto",
+    profile: str = DEFAULT_PROFILE,
+    base_url: str | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """Resolve transport, endpoint, and actual model without generation."""
+    transport = _transport(base_url)
+    endpoint = _endpoint(transport, base_url)
+    actual = _resolve_model(model, transport, base_url, timeout)
+    return {
+        "schema": CONTRACT_VERSION,
+        "profile": profile,
+        "transport": transport,
+        "endpoint": endpoint,
+        "model": actual,
+    }
+
 def generate(request: GenerationRequest) -> GenerationResult:
     transport = _transport(request.base_url)
     endpoint = _endpoint(transport, request.base_url)
@@ -460,6 +483,7 @@ __all__ = [
     "GenerationRequest",
     "GenerationResult",
     "ModelRunnerError",
+    "describe_route",
     "generate",
     "generate_text",
 ]

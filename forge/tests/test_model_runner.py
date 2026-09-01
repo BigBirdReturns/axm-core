@@ -163,12 +163,24 @@ def test_cache_key_changes_with_schema_prompt_and_controls(monkeypatch, tmp_path
     assert len(keys) == 4
 
 
-def test_auto_model_refuses_unknown_remote_identity(monkeypatch, tmp_path: Path):
+def test_auto_model_refuses_unknown_command_identity(monkeypatch, tmp_path: Path):
     helper = tmp_path / "echo.py"
     helper.write_text("print('[]')\n", encoding="utf-8")
     monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
     monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
     monkeypatch.setenv("AXM_MODEL_CACHE", "off")
-    result = runner.generate(request(model="auto"))
-    assert result.model == "auto"
-    assert result.receipt["model_requested"] == "auto"
+    with pytest.raises(runner.ModelRunnerError, match="stable identity"):
+        runner.generate(request(model="auto"))
+
+
+def test_describe_route_resolves_without_generation(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "never_called.py"
+    helper.write_text("raise SystemExit(99)\n", encoding="utf-8")
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_NAME", "haiku-route")
+    route = runner.describe_route(model="auto", profile="luna.test@1")
+    assert route["transport"] == "command"
+    assert route["endpoint"] == "command://local"
+    assert route["model"] == "haiku-route"
+    assert route["profile"] == "luna.test@1"
