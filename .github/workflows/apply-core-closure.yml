@@ -29,6 +29,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install validation dependency
+        run: python -m pip install pytest
+
       - name: Apply and validate every commit state
         working-directory: core
         run: |
