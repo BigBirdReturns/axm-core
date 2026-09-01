@@ -222,10 +222,214 @@ def derive_cache_key(request_digest: str, namespace: str, scope: str, epoch: int
     )
 
 
+def _iter_objects(directory: Path):
+    if not directory.is_dir():
+        return
+    for path in sorted(directory.rglob("*.json")):
+        if path.is_file():
+            yield path
+
+
+def _verify_object(path: Path, state: dict, epoch: int) -> dict:
+    """Full-object verification. Any contradiction refuses the operation."""
+    cache_key = path.stem
+    problems: list[str] = []
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"cache_key": cache_key, "path": str(path), "problems": [f"unreadable: {exc}"]}
+    if not isinstance(value, dict):
+        return {"cache_key": cache_key, "path": str(path), "problems": ["not an object"]}
+
+    receipt = value.get("receipt") if isinstance(value.get("receipt"), dict) else {}
+    text = str(value.get("text", ""))
+
+    if path.parent.name != cache_key[:2]:
+        problems.append("path digest does not match cache_key")
+    if str(receipt.get("cache_key") or "") != cache_key:
+        problems.append("receipt cache_key does not match object")
+    if not str(receipt.get("request_digest") or ""):
+        problems.append("request digest missing")
+    if _sha256(text) != str(value.get("response_sha256") or ""):
+        problems.append("response digest does not match response text")
+    if str(receipt.get("cache_namespace") or "") != state["cache_namespace"]:
+        problems.append("namespace does not match state")
+    if str(receipt.get("cache_scope") or "") != state["cache_scope"]:
+        problems.append("scope does not match state")
+    if int(receipt.get("cache_epoch", -1)) != int(epoch):
+        problems.append("epoch does not match current state")
+    if receipt.get("model_identity_match") is not True:
+        problems.append("model identity did not match when cached")
+    if receipt.get("cacheable") is not True:
+        problems.append("object was not marked cacheable")
+
+    return {
+        "cache_key": cache_key,
+        "path": str(path),
+        "bytes": path.stat().st_size if path.is_file() else 0,
+        "request_digest": str(receipt.get("request_digest") or ""),
+        "response_sha256": str(receipt.get("response_sha256") or ""),
+        "model_actual": str(receipt.get("model_actual") or ""),
+        "route_identity": str(receipt.get("route_identity") or ""),
+        "problems": problems,
+    }
+
+
+def inspect_cache_scope(namespace: str, scope: str, *, root: Path | None = None) -> Mapping[str, Any]:
+    """Report a scope without returning any model body."""
+    from axm_forge.model_runner import _cache_root  # local import avoids a cycle
+
+    namespace, scope = normalise(namespace, scope)
+    if not namespace:
+        raise CacheScopeError("inspect_cache_scope requires a namespace and scope")
+    base = root if root is not None else _cache_root()
+    if base is None:
+        raise CacheScopeError("model cache is disabled (AXM_MODEL_CACHE)")
+
+    state = read_state(base, namespace, scope)
+    epoch = int(state["current_epoch"])
+    entries = [_verify_object(path, state, epoch)
+               for path in _iter_objects(epoch_dir(base, namespace, scope, epoch))]
+    return {
+        "schema": INSPECTION_SCHEMA,
+        "cache_namespace": namespace,
+        "cache_scope": scope,
+        "current_epoch": epoch,
+        "entry_count": len(entries),
+        "stored_bytes": sum(int(row.get("bytes") or 0) for row in entries),
+        "verified_count": sum(1 for row in entries if not row["problems"]),
+        "refused_count": sum(1 for row in entries if row["problems"]),
+        "entries": [
+            {
+                "cache_key": row["cache_key"],
+                "request_digest": row.get("request_digest", ""),
+                "response_sha256": row.get("response_sha256", ""),
+                "model_actual": row.get("model_actual", ""),
+                "route_identity": row.get("route_identity", ""),
+                "problems": row["problems"],
+            }
+            for row in entries
+        ],
+        "last_invalidation_receipt_sha256": state.get("last_invalidation_receipt_sha256", ""),
+        "state_sha256": state.get("state_sha256", ""),
+    }
+
+
+def invalidate_cache_scope(
+    namespace: str,
+    scope: str,
+    *,
+    reason: str,
+    dry_run: bool = False,
+    root: Path | None = None,
+) -> Mapping[str, Any]:
+    """Retire the current generation of one exact scope. No wildcards."""
+    from axm_forge.model_runner import _cache_root
+
+    namespace, scope = normalise(namespace, scope)
+    if not namespace:
+        raise CacheScopeError("invalidate_cache_scope requires a namespace and scope")
+    if not str(reason or "").strip():
+        raise CacheScopeError("invalidate_cache_scope requires a reason")
+    base = root if root is not None else _cache_root()
+    if base is None:
+        raise CacheScopeError("model cache is disabled (AXM_MODEL_CACHE)")
+
+    with _ScopeLock(base, namespace, scope):
+        state = read_state(base, namespace, scope)
+        epoch = int(state["current_epoch"])
+        current = epoch_dir(base, namespace, scope, epoch)
+        entries = [_verify_object(path, state, epoch) for path in _iter_objects(current)]
+        refused = [row for row in entries if row["problems"]]
+        if refused:
+            # No partial purge. The epoch is untouched.
+            raise CacheScopeError(
+                "cache scope contains contradictory or corrupt entries; "
+                f"refusing to invalidate: {json.dumps(refused[:3])[:400]}"
+            )
+
+        total_bytes = sum(int(row.get("bytes") or 0) for row in entries)
+        request_digests = sorted({row["request_digest"] for row in entries if row["request_digest"]})
+        preview = {
+            "schema": INVALIDATION_SCHEMA,
+            "dry_run": bool(dry_run),
+            "cache_namespace": namespace,
+            "cache_scope": scope,
+            "epoch_before": epoch,
+            "epoch_after": epoch if dry_run else epoch + 1,
+            "entry_count": len(entries),
+            "verified_count": len(entries),
+            "refused_count": 0,
+            "deleted_bytes": 0 if dry_run else total_bytes,
+            "request_digests": request_digests,
+            "prior_scope_receipt_sha256": state.get("last_invalidation_receipt_sha256", ""),
+            "reason": str(reason),
+            "observed_at": _utc_now(),
+        }
+        if dry_run:
+            # A zero-entry scope is still invalidatable; report it truthfully.
+            return preview
+
+        invalidation_id = _sha256(
+            _canonical({"scope": scope, "namespace": namespace, "epoch": epoch,
+                        "at": preview["observed_at"], "reason": reason})
+        )[:32]
+        retired = scope_dir(base, namespace, scope) / "retired" / invalidation_id
+        moved = False
+        if current.is_dir():
+            retired.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(current, retired)
+            moved = True
+        try:
+            new_state = _seal_state(
+                {
+                    "schema": STATE_SCHEMA,
+                    "cache_namespace": namespace,
+                    "cache_scope": scope,
+                    "namespace_sha256": _sha256(namespace),
+                    "scope_sha256": _sha256(scope),
+                    "current_epoch": epoch + 1,
+                    "previous_state_sha256": state.get("state_sha256", ""),
+                    "last_invalidation_receipt_sha256": "",
+                }
+            )
+            receipt = dict(preview)
+            receipt["invalidation_id"] = invalidation_id
+            receipt_sha = _sha256(_canonical(receipt))
+            receipt["receipt_sha256"] = receipt_sha
+            new_state["last_invalidation_receipt_sha256"] = receipt_sha
+            new_state = _seal_state(new_state)
+            _atomic_write(_state_path(base, namespace, scope), _canonical(new_state) + b"\n")
+        except Exception:
+            if moved:
+                # Put the generation back before releasing the lock.
+                os.replace(retired, current)
+            raise
+
+        _atomic_write(
+            scope_dir(base, namespace, scope) / "receipts" / f"{invalidation_id}.json",
+            _canonical(receipt) + b"\n",
+        )
+
+        residue = ""
+        if moved:
+            try:
+                shutil.rmtree(retired)
+            except OSError as exc:
+                # The epoch already advanced, so the generation is unreachable.
+                # Report residue rather than claiming physical deletion.
+                residue = f"{retired}: {exc}"
+        receipt["inaccessible_residue"] = residue
+        receipt["physically_deleted"] = not residue
+        return receipt
+
+
 __all__ = [
     "CacheScopeError",
     "derive_cache_key",
     "epoch_dir",
+    "inspect_cache_scope",
+    "invalidate_cache_scope",
     "normalise",
     "object_path",
     "read_state",

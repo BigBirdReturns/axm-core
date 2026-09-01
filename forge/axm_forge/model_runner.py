@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from axm_forge import model_cache_scope as _scope
-from axm_forge.model_cache_scope import CacheScopeError  # re-exported
+from axm_forge.model_cache_scope import (  # re-exported stable API
+    CacheScopeError,
+    inspect_cache_scope,
+    invalidate_cache_scope,
+)
 
 CONTRACT_VERSION = "axm-core/model-runner@1"
 RECEIPT_VERSION = "axm-core/model-invocation-receipt@1"
