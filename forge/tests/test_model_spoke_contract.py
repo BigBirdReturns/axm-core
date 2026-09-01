@@ -167,7 +167,7 @@ def test_cleanup_failure_is_receipted_without_rolling_back_epoch(monkeypatch, tm
     assert result["epoch_after"] == 1
     assert result["physically_deleted"] is False
     assert result["deleted_bytes"] == 0
-    assert result["inaccessible_residue"].startswith("retired/")
+    assert result["inaccessible_residue"].startswith("r/")
     assert result["cleanup_receipt_persisted"] is True
 
     inspection = runner.inspect_cache_scope(NS, "plan-A")

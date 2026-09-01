@@ -22,7 +22,8 @@ Layout under the cache root::
     scopes/<namespace-sha256>/<scope-sha256>/
         state.json
         epochs/<08d epoch>/<key[:2]>/<cache_key>.json
-        receipts/<invalidation-id>.json
+        r/<08d retired epoch>/
+        receipts/<invalidation-id>.<kind>.json
     locks/<namespace-sha256>.<scope-sha256>.lock
 
 Paths use digests so an arbitrary caller-supplied string can never traverse the
@@ -108,6 +109,22 @@ def _token(value: str) -> str:
 
 def scope_dir(root: Path, namespace: str, scope: str) -> Path:
     return root / "scopes" / _token(namespace) / _token(scope)
+
+
+def _retired_dir(
+    root: Path,
+    namespace: str,
+    scope: str,
+    epoch: int,
+) -> Path:
+    """Return a retirement coordinate no longer than the active epoch path.
+
+    The prior ``retired/<32-hex-invalidation-id>`` layout lengthened every
+    nested object path after retirement.  On Windows that can turn a writable
+    cache object into an undeletable one.  An epoch is already unique inside
+    the locked scope, so ``r/<08d epoch>`` is sufficient and bounded.
+    """
+    return scope_dir(root, namespace, scope) / "r" / f"{int(epoch):08d}"
 
 
 def _lock_path(root: Path, namespace: str, scope: str) -> Path:
@@ -518,10 +535,15 @@ def invalidate_cache_scope(
                 }
             )
         )[:32]
-        retired = scope_dir(base, namespace, scope) / "retired" / invalidation_id
-        retired_relative = f"retired/{invalidation_id}"
+        retired = _retired_dir(base, namespace, scope, epoch)
+        retired_relative = f"r/{int(epoch):08d}"
         moved = False
         if current.is_dir():
+            if retired.exists():
+                raise CacheScopeError(
+                    "retired cache generation path already exists; refusing "
+                    "to overwrite inaccessible residue"
+                )
             retired.parent.mkdir(parents=True, exist_ok=True)
             os.replace(current, retired)
             moved = True
