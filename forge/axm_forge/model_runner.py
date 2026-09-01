@@ -554,10 +554,30 @@ def generate(request: GenerationRequest) -> GenerationResult:
     root = _cache_root()
 
     namespace, scope = _scope.normalise(request.cache_namespace, request.cache_scope)
-    cache_key = _scope.derive_cache_key(request_digest, namespace, scope)
-    cached = _read_cache(root, cache_key, None, request_digest)
-    if cached is not None:
-        return cached
+    scoped = bool(namespace) and root is not None
+    observed_epoch = 0
+    if scoped:
+        # Short lock: read the epoch and the object, then release before any
+        # model call. The lock is never held across generation.
+        with _scope._ScopeLock(root, namespace, scope):
+            state = _scope.read_state(root, namespace, scope)
+            observed_epoch = int(state["current_epoch"])
+            cache_key = _scope.derive_cache_key(
+                request_digest, namespace, scope, observed_epoch
+            )
+            cached = _read_cache(
+                root,
+                cache_key,
+                _scope.object_path(root, namespace, scope, observed_epoch, cache_key),
+                request_digest,
+            )
+        if cached is not None:
+            return cached
+    else:
+        cache_key = _scope.derive_cache_key(request_digest, namespace, scope, 0)
+        cached = _read_cache(root, cache_key, None, request_digest)
+        if cached is not None:
+            return cached
 
     started_at = _utc_now()
     start = time.monotonic()
@@ -579,7 +599,7 @@ def generate(request: GenerationRequest) -> GenerationResult:
         "cache_key": cache_key,
         "cache_namespace": namespace,
         "cache_scope": scope,
-        "cache_epoch": 0,
+        "cache_epoch": observed_epoch,
         "response_sha256": response_sha256,
         "profile": request.profile,
         "purpose": request.purpose,
@@ -611,8 +631,27 @@ def generate(request: GenerationRequest) -> GenerationResult:
         receipt["cache_write_outcome"] = "REFUSED"
         receipt["cache_write_reason"] = "model_identity_drift"
         return result
-    _write_cache(root, result)
-    receipt["cache_write_outcome"] = "WRITTEN"
+    if not scoped:
+        _write_cache(root, result)
+        receipt["cache_write_outcome"] = "WRITTEN"
+        return result
+
+    # Fence: the scope may have been invalidated while the model call was in
+    # flight. The caller still receives the result, but it must not enter a
+    # retired generation.
+    with _scope._ScopeLock(root, namespace, scope):
+        current = int(_scope.read_state(root, namespace, scope)["current_epoch"])
+        if current != observed_epoch:
+            receipt["cacheable"] = False
+            receipt["cache_write_outcome"] = "REFUSED"
+            receipt["cache_write_reason"] = "scope_epoch_changed"
+            return result
+        _write_cache(
+            root,
+            result,
+            _scope.object_path(root, namespace, scope, current, cache_key),
+        )
+        receipt["cache_write_outcome"] = "WRITTEN"
     return result
 
 

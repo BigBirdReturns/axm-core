@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from axm_forge import model_cache_scope as scope_mod
 from axm_forge import model_runner as runner
 from axm_forge.model_cache_scope import CacheScopeError
 
@@ -76,3 +77,26 @@ def test_all_or_neither_scope_is_enforced(cache: Path):
         with pytest.raises(CacheScopeError):
             runner.generate(request(base_url=base, cache_scope="plan-A"))
 
+
+
+def test_same_scope_and_epoch_is_one_call_then_a_hit(cache: Path):
+    with server() as base:
+        first = runner.generate(_scoped(base, "plan-A"))
+        second = runner.generate(_scoped(base, "plan-A"))
+    assert first.receipt["cache_hit"] is False
+    assert second.receipt["cache_hit"] is True
+    assert len(Handler.calls) == 1
+
+
+def test_scope_metadata_and_receipts_are_body_free(cache: Path):
+    with server() as base:
+        result = runner.generate(_scoped(base, "plan-A"))
+    receipt = json.dumps(result.receipt)
+    for text in (receipt,):
+        assert "system" not in text or "system_sha256" in text
+        assert '[{"ok":true}]' not in text
+        assert "127.0.0.1" not in text
+        assert "Authorization" not in text
+    # The scope must never reach the provider.
+    assert all("cache_scope" not in call["payload"] for call in Handler.calls)
+    assert all("cache_namespace" not in call["payload"] for call in Handler.calls)
