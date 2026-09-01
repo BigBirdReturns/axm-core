@@ -67,6 +67,21 @@ def _sha256(value: str | bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _normalised_cache_root(root: Path) -> str:
+    """Return a platform-canonical cache-store coordinate.
+
+    The coordinate itself is never exposed in receipts. Windows case folding and
+    path normalization ensure aliases of the same local store share one identity.
+    """
+    resolved = Path(root).expanduser().resolve(strict=False)
+    return os.path.normcase(os.path.normpath(str(resolved)))
+
+
+def cache_store_sha256(root: Path) -> str:
+    """Body-free identity of the resolved cache root."""
+    return _sha256(_normalised_cache_root(root))
+
+
 def normalise(namespace: str, scope: str) -> tuple[str, str]:
     """Validate the all-or-neither rule and return the exact pair."""
     namespace = str(namespace or "")
@@ -292,6 +307,7 @@ def inspect_cache_scope(namespace: str, scope: str, *, root: Path | None = None)
                for path in _iter_objects(epoch_dir(base, namespace, scope, epoch))]
     return {
         "schema": INSPECTION_SCHEMA,
+        "cache_store_sha256": cache_store_sha256(base),
         "cache_namespace": namespace,
         "cache_scope": scope,
         "current_epoch": epoch,
@@ -312,6 +328,7 @@ def inspect_cache_scope(namespace: str, scope: str, *, root: Path | None = None)
         ],
         "last_invalidation_receipt_sha256": state.get("last_invalidation_receipt_sha256", ""),
         "state_sha256": state.get("state_sha256", ""),
+        "state_persisted": _state_path(base, namespace, scope).is_file(),
     }
 
 
@@ -352,6 +369,7 @@ def invalidate_cache_scope(
         request_digests = sorted({row["request_digest"] for row in entries if row["request_digest"]})
         preview = {
             "schema": INVALIDATION_SCHEMA,
+            "cache_store_sha256": cache_store_sha256(base),
             "dry_run": bool(dry_run),
             "cache_namespace": namespace,
             "cache_scope": scope,
@@ -426,6 +444,7 @@ def invalidate_cache_scope(
 
 __all__ = [
     "CacheScopeError",
+    "cache_store_sha256",
     "derive_cache_key",
     "epoch_dir",
     "inspect_cache_scope",

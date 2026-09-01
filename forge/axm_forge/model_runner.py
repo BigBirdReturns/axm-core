@@ -340,7 +340,12 @@ def _read_cache(
         return None
     if str(receipt.get("transport") or "") != str(value.get("transport") or ""):
         return None
-    receipt = {**receipt, "cache_hit": True, "cache_read_at": _utc_now()}
+    receipt = {
+        **receipt,
+        "cache_store_sha256": _scope.cache_store_sha256(root),
+        "cache_hit": True,
+        "cache_read_at": _utc_now(),
+    }
     return GenerationResult(
         text=text,
         model=str(value.get("model", "")),
@@ -556,6 +561,7 @@ def generate(request: GenerationRequest) -> GenerationResult:
     )
     request_digest = _sha256(_canonical(material))
     root = _cache_root()
+    cache_store = _scope.cache_store_sha256(root) if root is not None else ""
 
     namespace, scope = _scope.normalise(request.cache_namespace, request.cache_scope)
     scoped = bool(namespace) and root is not None
@@ -604,6 +610,7 @@ def generate(request: GenerationRequest) -> GenerationResult:
         "cache_namespace": namespace,
         "cache_scope": scope,
         "cache_epoch": observed_epoch,
+        "cache_store_sha256": cache_store,
         "response_sha256": response_sha256,
         "profile": request.profile,
         "purpose": request.purpose,
@@ -673,6 +680,8 @@ def generate_text(
     num_ctx: int | None = None,
     temperature: float = 0.0,
     seed: int = 0,
+    cache_namespace: str = "",
+    cache_scope: str = "",
 ) -> dict[str, Any]:
     """Stable function-level contract consumed by AXM spokes."""
     return generate(
@@ -689,15 +698,20 @@ def generate_text(
             num_ctx=_resolve_num_ctx(num_ctx),
             temperature=temperature,
             seed=seed,
+            cache_namespace=cache_namespace,
+            cache_scope=cache_scope,
         )
     ).to_dict()
 
 
 __all__ = [
+    "CacheScopeError",
     "GenerationRequest",
     "GenerationResult",
     "ModelRunnerError",
     "describe_route",
     "generate",
+    "inspect_cache_scope",
+    "invalidate_cache_scope",
     "generate_text",
 ]
