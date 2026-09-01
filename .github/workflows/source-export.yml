@@ -1,0 +1,42 @@
+name: source-export
+
+on:
+  push:
+    branches:
+      - cloud/source-export-core-20260901
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Package exact working tree
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          root = Path('.')
+          out = root / 'axm-core-source-7a74145.zip'
+          excluded = {'.git', out.name}
+          with zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+              for path in sorted(root.rglob('*')):
+                  if not path.is_file():
+                      continue
+                  if any(part in excluded for part in path.parts):
+                      continue
+                  zf.write(path, 'axm-core/' + path.as_posix())
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: axm-core-source-7a74145
+          path: axm-core-source-7a74145.zip
+          if-no-files-found: error
+          retention-days: 1
