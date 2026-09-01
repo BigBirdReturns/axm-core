@@ -1,0 +1,50 @@
+name: apply-core-closure
+
+on:
+  push:
+    branches:
+      - cloud/source-export-core-20260901
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: carrier
+
+      - name: Decode exact commit series
+        run: xz -dc carrier/.github/core-closure.mbox.xz > "$RUNNER_TEMP/core-closure.mbox"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: cloud/model-runner-20260831
+          fetch-depth: 0
+          path: core
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply and validate every commit state
+        working-directory: core
+        run: |
+          set -euo pipefail
+          git config user.name "AXM Cloud"
+          git config user.email "cloud@invalid.local"
+          base="7a74145cb46f7443444b0cacf92689af8f538e86"
+          git checkout -b cloud/model-runner-spoke-contract-staging-20260901 "$base"
+          git am "$RUNNER_TEMP/core-closure.mbox"
+          mapfile -t commits < <(git rev-list --reverse "$base"..HEAD)
+          test "${#commits[@]}" -eq 3
+          branch="cloud/model-runner-spoke-contract-staging-20260901"
+          for commit in "${commits[@]}"; do
+            git checkout --detach "$commit"
+            PYTHONPATH=forge python -m pytest -q forge/tests -W error
+          done
+          git checkout "$branch"
+          git log --oneline "$base"..HEAD
+          git push origin "HEAD:refs/heads/$branch"
