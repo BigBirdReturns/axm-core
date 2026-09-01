@@ -29,14 +29,14 @@ class Handler(BaseHTTPRequestHandler):
         )
         if self.__class__.mode == "ollama":
             body = {
-                "model": "local-cheap:1",
+                "model": payload["model"],
                 "message": {"content": "[{\"ok\":true}]"},
                 "prompt_eval_count": 17,
                 "eval_count": 8,
             }
         else:
             body = {
-                "model": "remote-cheap-2026",
+                "model": payload["model"],
                 "choices": [{"message": {"content": "[]"}}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 2},
             }
@@ -88,8 +88,13 @@ def test_ollama_native_controls_and_cache(monkeypatch, tmp_path: Path):
     with server("ollama") as base:
         result = runner.generate(request(base_url=base))
         assert result.text == '[{"ok":true}]'
-        assert result.model == "local-cheap:1"
+        assert result.model == "cheap-test"
         assert result.receipt["cache_hit"] is False
+        assert result.receipt["cacheable"] is True
+        assert result.receipt["model_identity_match"] is True
+        assert result.receipt["route_identity"].startswith(
+            "ollama-native-endpoint-sha256:"
+        )
         assert len(Handler.calls) == 1
         call = Handler.calls[0]
         assert call["path"] == "/api/chat"
@@ -117,6 +122,7 @@ def test_openai_compatible_contract_and_secret_redaction(monkeypatch, tmp_path: 
     assert call["payload"]["seed"] == 29
     assert call["payload"]["max_tokens"] == 333
     assert result.text == "[]"
+    assert result.receipt["cacheable"] is True
     serialized = json.dumps(result.to_dict())
     assert "secret-never-receipted" not in serialized
     cache_text = next((tmp_path / "cache").rglob("*.json")).read_text()
@@ -146,6 +152,24 @@ print(json.dumps({'text': '[1]', 'model': 'cli-haiku', 'usage': {'calls': 1}}))
     assert result.transport == "command"
     assert result.receipt["usage"] == {"calls": 1}
     assert result.receipt["endpoint"] == "command://local"
+    assert result.receipt["route_identity"].startswith("command-sha256:")
+    assert result.receipt["cacheable"] is False
+
+
+def test_model_identity_drift_is_not_cached(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "model_helper.py"
+    helper.write_text(
+        "import json; print(json.dumps({'text': '[]', 'model': 'different-model'}))\n",
+        encoding="utf-8",
+    )
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    result = runner.generate(request())
+    assert result.receipt["model_identity_match"] is False
+    assert result.receipt["cacheable"] is False
+    assert not list(cache.rglob("*.json"))
 
 
 def test_cache_key_changes_with_schema_prompt_and_controls(monkeypatch, tmp_path: Path):
@@ -184,3 +208,4 @@ def test_describe_route_resolves_without_generation(monkeypatch, tmp_path: Path)
     assert route["endpoint"] == "command://local"
     assert route["model"] == "haiku-route"
     assert route["profile"] == "luna.test@1"
+    assert route["route_identity"].startswith("command-sha256:")

@@ -120,6 +120,25 @@ def _endpoint(transport: str, base_url: str | None) -> str:
     return base if base.endswith("/chat/completions") else base + "/chat/completions"
 
 
+def _route_identity(transport: str, endpoint: str) -> str:
+    """Return a body-free identity for the selected invocation route.
+
+    HTTP endpoints are already part of the cache material. The additional
+    operator-supplied route identity can bind a deployment or mutable alias.
+    Command routes have no useful endpoint, so their exact command text is
+    hashed to prevent two different wrappers from sharing a cache key.
+    """
+    declared = os.environ.get("AXM_MODEL_ROUTE_ID", "").strip()
+    if declared:
+        return declared
+    if transport == "command":
+        command = os.environ.get("AXM_MODEL_COMMAND", "").strip()
+        if not command:
+            raise ModelRunnerError("AXM_MODEL_COMMAND is required for command transport")
+        return "command-sha256:" + _sha256(command)
+    return f"{transport}-endpoint-sha256:" + _sha256(endpoint)
+
+
 def _http_json(
     endpoint: str,
     payload: Mapping[str, Any],
@@ -211,6 +230,7 @@ def _cache_material(
     *,
     transport: str,
     endpoint: str,
+    route_identity: str,
     model: str,
 ) -> dict[str, Any]:
     return {
@@ -220,6 +240,7 @@ def _cache_material(
         "response_schema": request.response_schema,
         "transport": transport,
         "endpoint": endpoint,
+        "route_identity": route_identity,
         "model": model,
         "system_sha256": _sha256(request.system),
         "user_sha256": _sha256(request.user),
@@ -382,23 +403,27 @@ def describe_route(
     """Resolve transport, endpoint, and actual model without generation."""
     transport = _transport(base_url)
     endpoint = _endpoint(transport, base_url)
+    route_identity = _route_identity(transport, endpoint)
     actual = _resolve_model(model, transport, base_url, timeout)
     return {
         "schema": CONTRACT_VERSION,
         "profile": profile,
         "transport": transport,
         "endpoint": endpoint,
+        "route_identity": route_identity,
         "model": actual,
     }
 
 def generate(request: GenerationRequest) -> GenerationResult:
     transport = _transport(request.base_url)
     endpoint = _endpoint(transport, request.base_url)
+    route_identity = _route_identity(transport, endpoint)
     model = _resolve_model(request.model, transport, request.base_url, request.timeout)
     material = _cache_material(
         request,
         transport=transport,
         endpoint=endpoint,
+        route_identity=route_identity,
         model=model,
     )
     cache_key = _sha256(_canonical(material))
@@ -417,6 +442,7 @@ def generate(request: GenerationRequest) -> GenerationResult:
         text, actual_model, usage = _invoke_command(request, model)
     duration_ms = round((time.monotonic() - start) * 1000, 3)
     response_sha256 = _sha256(text)
+    model_identity_match = actual_model == model
     receipt = {
         "schema": RECEIPT_VERSION,
         "request_digest": cache_key,
@@ -426,14 +452,17 @@ def generate(request: GenerationRequest) -> GenerationResult:
         "response_schema": request.response_schema,
         "transport": transport,
         "endpoint": endpoint,
+        "route_identity": route_identity,
         "model_requested": request.model,
         "model_actual": actual_model,
+        "model_identity_match": model_identity_match,
         "temperature": float(request.temperature),
         "seed": int(request.seed),
         "max_output_tokens": int(request.max_output_tokens),
         "started_at": started_at,
         "duration_ms": duration_ms,
         "cache_hit": False,
+        "cacheable": model_identity_match,
         "usage": usage,
     }
     result = GenerationResult(
@@ -443,7 +472,8 @@ def generate(request: GenerationRequest) -> GenerationResult:
         cache_key=cache_key,
         receipt=receipt,
     )
-    _write_cache(root, result)
+    if model_identity_match:
+        _write_cache(root, result)
     return result
 
 
