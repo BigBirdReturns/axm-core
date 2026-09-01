@@ -291,6 +291,59 @@ def _verify_object(path: Path, state: dict, epoch: int) -> dict:
     }
 
 
+def _read_sealed_receipt(path: Path) -> dict[str, Any]:
+    """Read one persisted receipt and verify every covered claim."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CacheScopeError(f"cache scope receipt is unreadable: {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise CacheScopeError(f"cache scope receipt is not an object: {path}")
+    expected = str(value.get("receipt_sha256") or "")
+    body = {key: item for key, item in value.items() if key != "receipt_sha256"}
+    actual = _sha256(_canonical(body))
+    if not expected or expected != actual:
+        raise CacheScopeError(f"cache scope receipt digest is invalid: {path}")
+    return value
+
+
+def _last_scope_receipts(
+    root: Path,
+    namespace: str,
+    scope: str,
+    receipt_sha256: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve the state-bound logical receipt and optional cleanup witness."""
+    if not receipt_sha256:
+        return {}, {}
+    receipt_dir = scope_dir(root, namespace, scope) / "receipts"
+    matches: list[tuple[Path, dict[str, Any]]] = []
+    for path in sorted(receipt_dir.glob("*.invalidation.json")):
+        value = _read_sealed_receipt(path)
+        if str(value.get("receipt_sha256") or "") == receipt_sha256:
+            matches.append((path, value))
+    if len(matches) != 1:
+        raise CacheScopeError(
+            "cache scope state does not resolve to exactly one logical "
+            f"invalidation receipt: {receipt_sha256}"
+        )
+    logical_path, logical = matches[0]
+    if logical.get("cache_namespace") != namespace or logical.get("cache_scope") != scope:
+        raise CacheScopeError(
+            "logical invalidation receipt does not match requested namespace/scope"
+        )
+    invalidation_id = str(logical.get("invalidation_id") or "")
+    cleanup_path = logical_path.with_name(f"{invalidation_id}.cleanup.json")
+    if not cleanup_path.is_file():
+        return logical, {}
+    cleanup = _read_sealed_receipt(cleanup_path)
+    if cleanup.get("cache_namespace") != namespace or cleanup.get("cache_scope") != scope:
+        raise CacheScopeError("cleanup receipt does not match requested namespace/scope")
+    if cleanup.get("invalidation_receipt_sha256") != receipt_sha256:
+        raise CacheScopeError("cleanup receipt does not chain to logical invalidation")
+    return logical, cleanup
+
+
 def inspect_cache_scope(namespace: str, scope: str, *, root: Path | None = None) -> Mapping[str, Any]:
     """Report a scope without returning any model body."""
     from axm_forge.model_runner import _cache_root  # local import avoids a cycle
@@ -306,6 +359,12 @@ def inspect_cache_scope(namespace: str, scope: str, *, root: Path | None = None)
     epoch = int(state["current_epoch"])
     entries = [_verify_object(path, state, epoch)
                for path in _iter_objects(epoch_dir(base, namespace, scope, epoch))]
+    last_logical, last_cleanup = _last_scope_receipts(
+        base,
+        namespace,
+        scope,
+        str(state.get("last_invalidation_receipt_sha256") or ""),
+    )
     return {
         "schema": INSPECTION_SCHEMA,
         "cache_store_sha256": cache_store_sha256(base),
@@ -328,6 +387,9 @@ def inspect_cache_scope(namespace: str, scope: str, *, root: Path | None = None)
             for row in entries
         ],
         "last_invalidation_receipt_sha256": state.get("last_invalidation_receipt_sha256", ""),
+        "last_invalidation_receipt": last_logical,
+        "last_cleanup_receipt": last_cleanup,
+        "cleanup_receipt_persisted": bool(last_cleanup),
         "state_sha256": state.get("state_sha256", ""),
         "state_persisted": _state_path(base, namespace, scope).is_file(),
     }

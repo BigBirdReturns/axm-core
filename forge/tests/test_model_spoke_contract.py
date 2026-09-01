@@ -182,3 +182,74 @@ def test_cleanup_failure_is_receipted_without_rolling_back_epoch(monkeypatch, tm
     _verify_persisted_receipt(cleanup)
     assert cleanup["physically_deleted"] is False
     assert cleanup["inaccessible_residue"] == result["inaccessible_residue"]
+
+
+def test_inspection_exposes_verified_last_retirement_witness(monkeypatch, tmp_path: Path):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "ollama-native")
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    with server() as base:
+        _generate_text(base)
+
+    result = runner.invalidate_cache_scope(NS, "plan-A", reason="recoverable prepare")
+    inspection = runner.inspect_cache_scope(NS, "plan-A")
+    logical = inspection["last_invalidation_receipt"]
+    cleanup = inspection["last_cleanup_receipt"]
+
+    assert logical["receipt_sha256"] == result["receipt_sha256"]
+    assert logical["epoch_before"] == 0 and logical["epoch_after"] == 1
+    assert logical["cache_store_sha256"] == inspection["cache_store_sha256"]
+    assert cleanup["invalidation_receipt_sha256"] == logical["receipt_sha256"]
+    assert inspection["cleanup_receipt_persisted"] is True
+
+
+def test_inspection_refuses_missing_or_tampered_state_bound_receipt(monkeypatch, tmp_path: Path):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    runner.invalidate_cache_scope(NS, "plan-A", reason="seed")
+    receipt_dir = scope_mod.scope_dir(cache, NS, "plan-A") / "receipts"
+    logical_path = next(receipt_dir.glob("*.invalidation.json"))
+    value = __import__("json").loads(logical_path.read_text(encoding="utf-8"))
+    value["reason"] = "tampered"
+    logical_path.write_text(__import__("json").dumps(value), encoding="utf-8")
+
+    with pytest.raises(scope_mod.CacheScopeError, match="digest is invalid"):
+        runner.inspect_cache_scope(NS, "plan-A")
+
+
+def test_cached_object_preserves_written_outcome(monkeypatch, tmp_path: Path):
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "ollama-native")
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    with server() as base:
+        first = runner.generate(
+            runner.GenerationRequest(
+                system="system",
+                user="user",
+                model="cheap-test",
+                profile="luna.semantic@1",
+                purpose="test/write-outcome@1",
+                response_schema="array@1",
+                base_url=base,
+                cache_namespace=NS,
+                cache_scope="plan-A",
+                num_ctx=8192,
+            )
+        )
+        second = runner.generate(
+            runner.GenerationRequest(
+                system="system",
+                user="user",
+                model="cheap-test",
+                profile="luna.semantic@1",
+                purpose="test/write-outcome@1",
+                response_schema="array@1",
+                base_url=base,
+                cache_namespace=NS,
+                cache_scope="plan-A",
+                num_ctx=8192,
+            )
+        )
+    assert first.receipt["cache_write_outcome"] == "WRITTEN"
+    assert second.receipt["cache_hit"] is True
+    assert second.receipt["cache_write_outcome"] == "WRITTEN"

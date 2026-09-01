@@ -643,8 +643,8 @@ def generate(request: GenerationRequest) -> GenerationResult:
         receipt["cache_write_reason"] = "model_identity_drift"
         return result
     if not scoped:
-        _write_cache(root, result)
         receipt["cache_write_outcome"] = "WRITTEN"
+        _write_cache(root, result)
         return result
 
     # Fence: the scope may have been invalidated while the model call was in
@@ -657,12 +657,12 @@ def generate(request: GenerationRequest) -> GenerationResult:
             receipt["cache_write_outcome"] = "REFUSED"
             receipt["cache_write_reason"] = "scope_epoch_changed"
             return result
+        receipt["cache_write_outcome"] = "WRITTEN"
         _write_cache(
             root,
             result,
             _scope.object_path(root, namespace, scope, current, cache_key),
         )
-        receipt["cache_write_outcome"] = "WRITTEN"
     return result
 
 
