@@ -44,5 +44,9 @@ jobs:
         working-directory: axm-core
         run: python -m pytest tests/ -q
 
+      - name: Forge model-runner spoke contract
+        working-directory: axm-core/forge
+        run: python -m pytest tests/ -q -W error
+
       - name: Drift check (kernel-boundary lint, sourced from genesis)
         run: bash axm-genesis/tools/drift-check.sh axm-core
