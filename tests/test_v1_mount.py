@@ -262,3 +262,64 @@ def test_spoke_api_import_surface():
         extract,
         extract_chat_json,
     )
+
+    # Provider-neutral model-runner surface listed in SPOKE_API.md.
+    import inspect
+
+    from axm_forge import model_cache_scope, model_runner
+    from axm_forge.model_runner import (  # noqa: F401
+        CacheScopeError,
+        ModelRunnerError,
+        describe_route,
+        generate_text,
+        inspect_cache_scope,
+        invalidate_cache_scope,
+    )
+
+    assert model_runner.CONTRACT_VERSION == "axm-core/model-runner@1"
+    assert model_runner.RECEIPT_VERSION == "axm-core/model-invocation-receipt@1"
+    assert model_cache_scope.STATE_SCHEMA == "axm-core/model-cache-scope-state@1"
+    assert (
+        model_cache_scope.INSPECTION_SCHEMA
+        == "axm-core/model-cache-scope-inspection@1"
+    )
+    assert (
+        model_cache_scope.INVALIDATION_SCHEMA
+        == "axm-core/model-cache-scope-invalidation@2"
+    )
+    assert (
+        model_cache_scope.CLEANUP_SCHEMA
+        == "axm-core/model-cache-scope-cleanup@1"
+    )
+    assert issubclass(CacheScopeError, RuntimeError)
+    assert issubclass(ModelRunnerError, RuntimeError)
+
+    generate_parameters = inspect.signature(generate_text).parameters
+    assert {"cache_namespace", "cache_scope"} <= set(generate_parameters)
+    assert generate_parameters["purpose"].default is inspect.Parameter.empty
+    assert (
+        generate_parameters["response_schema"].default
+        is inspect.Parameter.empty
+    )
+
+    inspect_parameters = inspect.signature(inspect_cache_scope).parameters
+    invalidate_parameters = inspect.signature(invalidate_cache_scope).parameters
+    assert {"namespace", "scope"} <= set(inspect_parameters)
+    assert {"namespace", "scope", "reason", "dry_run"} <= set(
+        invalidate_parameters
+    )
+    assert invalidate_parameters["reason"].default is inspect.Parameter.empty
+    assert invalidate_parameters["dry_run"].default is False
+
+    documented = (REPO_ROOT / "SPOKE_API.md").read_text(encoding="utf-8")
+    for stable_name in (
+        "generate_text",
+        "describe_route",
+        "inspect_cache_scope",
+        "invalidate_cache_scope",
+        "axm-core/model-invocation-receipt@1",
+        "axm-core/model-cache-scope-inspection@1",
+        "axm-core/model-cache-scope-invalidation@2",
+        "axm-core/model-cache-scope-cleanup@1",
+    ):
+        assert stable_name in documented

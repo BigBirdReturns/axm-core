@@ -1,0 +1,274 @@
+from __future__ import annotations
+
+import json
+import os
+import sys
+import threading
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+
+from axm_forge import model_runner as runner
+
+
+class Handler(BaseHTTPRequestHandler):
+    calls: list[dict] = []
+    mode = "ollama"
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length))
+        self.__class__.calls.append(
+            {
+                "path": self.path,
+                "payload": payload,
+                "authorization": self.headers.get("Authorization"),
+            }
+        )
+        if self.__class__.mode == "ollama":
+            body = {
+                "model": payload["model"],
+                "message": {"content": "[{\"ok\":true}]"},
+                "prompt_eval_count": 17,
+                "eval_count": 8,
+            }
+        else:
+            body = {
+                "model": payload["model"],
+                "choices": [{"message": {"content": "[]"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+            }
+        encoded = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def log_message(self, *_args):
+        pass
+
+
+@contextmanager
+def server(mode: str):
+    Handler.calls = []
+    Handler.mode = mode
+    instance = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{instance.server_port}"
+    finally:
+        instance.shutdown()
+        thread.join(timeout=5)
+        instance.server_close()
+
+
+def request(**overrides):
+    values = {
+        "system": "system",
+        "user": "user",
+        "model": "cheap-test",
+        "profile": "luna.semantic@1",
+        "purpose": "test/lens@1",
+        "response_schema": "array@1",
+        "temperature": 0.0,
+        "seed": 29,
+        "max_output_tokens": 333,
+        "num_ctx": 12288,
+    }
+    values.update(overrides)
+    return runner.GenerationRequest(**values)
+
+
+def test_ollama_native_controls_and_cache(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "ollama-native")
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(tmp_path / "cache"))
+    with server("ollama") as base:
+        result = runner.generate(request(base_url=base))
+        assert result.text == '[{"ok":true}]'
+        assert result.model == "cheap-test"
+        assert result.receipt["cache_hit"] is False
+        assert result.receipt["cacheable"] is True
+        assert result.receipt["model_identity_match"] is True
+        assert result.receipt["route_identity"].startswith(
+            "ollama-native-endpoint-sha256:"
+        )
+        assert len(Handler.calls) == 1
+        call = Handler.calls[0]
+        assert call["path"] == "/api/chat"
+        assert call["payload"]["think"] is False
+        assert call["payload"]["options"]["temperature"] == 0.0
+        assert call["payload"]["options"]["seed"] == 29
+        assert call["payload"]["options"]["num_predict"] == 333
+        assert call["payload"]["options"]["num_ctx"] == 12288
+        assert result.receipt["num_ctx"] == 12288
+
+        cached = runner.generate(request(base_url=base))
+        assert cached.text == result.text
+        assert cached.receipt["cache_hit"] is True
+        assert len(Handler.calls) == 1
+
+
+def test_openai_compatible_contract_and_secret_redaction(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "openai-compatible")
+    monkeypatch.setenv("AXM_MODEL_API_KEY", "secret-never-receipted")
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(tmp_path / "cache"))
+    with server("openai") as base:
+        result = runner.generate(request(base_url=base + "/v1"))
+    call = Handler.calls[0]
+    assert call["path"] == "/v1/chat/completions"
+    assert call["authorization"] == "Bearer secret-never-receipted"
+    assert call["payload"]["temperature"] == 0.0
+    assert call["payload"]["seed"] == 29
+    assert call["payload"]["max_tokens"] == 333
+    assert result.text == "[]"
+    assert result.receipt["cacheable"] is True
+    serialized = json.dumps(result.to_dict())
+    assert "secret-never-receipted" not in serialized
+    cache_text = next((tmp_path / "cache").rglob("*.json")).read_text()
+    assert "secret-never-receipted" not in cache_text
+    assert "system" not in result.receipt
+    assert "user" not in result.receipt
+
+
+def test_command_transport_is_fresh_and_structured(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "model_helper.py"
+    helper.write_text(
+        """
+import json, sys
+request = json.load(sys.stdin)
+assert request['profile'] == 'luna.semantic@1'
+assert request['seed'] == 29
+assert request['num_ctx'] == 12288
+print(json.dumps({'text': '[1]', 'model': 'cli-haiku', 'usage': {'calls': 1}}))
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_CACHE", "off")
+    result = runner.generate(request())
+    assert result.text == "[1]"
+    assert result.model == "cli-haiku"
+    assert result.transport == "command"
+    assert result.receipt["usage"] == {"calls": 1}
+    assert result.receipt["endpoint_sha256"] == runner._sha256("command://local")
+    assert "endpoint" not in result.receipt
+    assert result.receipt["route_identity"].startswith("command-sha256:")
+    assert result.receipt["cacheable"] is False
+
+
+def test_model_identity_drift_is_not_cached(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "model_helper.py"
+    helper.write_text(
+        "import json; print(json.dumps({'text': '[]', 'model': 'different-model'}))\n",
+        encoding="utf-8",
+    )
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    result = runner.generate(request())
+    assert result.receipt["model_identity_match"] is False
+    assert result.receipt["cacheable"] is False
+    assert not list(cache.rglob("*.json"))
+
+
+def test_cache_tamper_is_ignored(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "ollama-native")
+    cache = tmp_path / "cache"
+    monkeypatch.setenv("AXM_MODEL_CACHE", str(cache))
+    with server("ollama") as base:
+        first = runner.generate(request(base_url=base))
+        cache_path = next(cache.rglob("*.json"))
+        value = json.loads(cache_path.read_text(encoding="utf-8"))
+        value["receipt"]["request_digest"] = "0" * 64
+        cache_path.write_text(json.dumps(value), encoding="utf-8")
+        second = runner.generate(request(base_url=base))
+    assert first.text == second.text
+    assert second.receipt["cache_hit"] is False
+    assert len(Handler.calls) == 2
+
+
+def test_cache_key_changes_with_schema_prompt_and_controls(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    helper = tmp_path / "echo.py"
+    helper.write_text("print('[]')\n", encoding="utf-8")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_CACHE", "off")
+    keys = {
+        runner.generate(request()).cache_key,
+        runner.generate(request(user="other")).cache_key,
+        runner.generate(request(response_schema="array@2")).cache_key,
+        runner.generate(request(seed=30)).cache_key,
+        runner.generate(request(num_ctx=16384)).cache_key,
+    }
+    assert len(keys) == 5
+
+
+def test_auto_model_refuses_unknown_command_identity(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "echo.py"
+    helper.write_text("print('[]')\n", encoding="utf-8")
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_CACHE", "off")
+    with pytest.raises(runner.ModelRunnerError, match="stable identity"):
+        runner.generate(request(model="auto"))
+
+
+def test_describe_route_resolves_without_generation(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "never_called.py"
+    helper.write_text("raise SystemExit(99)\n", encoding="utf-8")
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_NAME", "haiku-route")
+    route = runner.describe_route(model="auto", profile="luna.test@1")
+    assert route["transport"] == "command"
+    assert route["endpoint_sha256"] == runner._sha256("command://local")
+    assert "endpoint" not in route
+    assert route["model"] == "haiku-route"
+    assert route["profile"] == "luna.test@1"
+    assert route["route_identity"].startswith("command-sha256:")
+    assert route["num_ctx"] == 8192
+
+
+def test_describe_route_binds_configured_context_window(monkeypatch, tmp_path: Path):
+    helper = tmp_path / "never_called.py"
+    helper.write_text("raise SystemExit(99)\n", encoding="utf-8")
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"')
+    monkeypatch.setenv("AXM_MODEL_NAME", "haiku-route")
+    monkeypatch.setenv("AXM_MODEL_NUM_CTX", "16384")
+    route = runner.describe_route(model="auto")
+    assert route["num_ctx"] == 16384
+    with pytest.raises(runner.ModelRunnerError, match="must be an integer"):
+        monkeypatch.setenv("AXM_MODEL_NUM_CTX", "broken")
+        runner.describe_route(model="auto")
+
+
+def test_receipt_usage_refuses_provider_text(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AXM_MODEL_TRANSPORT", "command")
+    monkeypatch.setenv("AXM_MODEL_CACHE", "off")
+    helper = tmp_path / "usage.py"
+    helper.write_text(
+        "import json, sys\n"
+        "json.load(sys.stdin)\n"
+        "print(json.dumps({\"text\": \"ok\", \"model\": \"safe-model\", "
+        "\"usage\": {\"tokens\": 12, \"prompt\": \"private body\", "
+        "\"details\": {\"cached_tokens\": 3, \"note\": \"secret\"}}}))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(
+        "AXM_MODEL_COMMAND", f'"{sys.executable}" "{helper}"'
+    )
+    monkeypatch.setenv("AXM_MODEL_NAME", "safe-model")
+    result = runner.generate(request(model="auto"))
+    assert result.receipt["usage"] == {
+        "tokens": 12,
+        "details": {"cached_tokens": 3},
+    }
+    assert "private body" not in json.dumps(result.receipt)
+    assert "secret" not in json.dumps(result.receipt)
