@@ -1,0 +1,10 @@
+{
+  "local_preview_commit": "44c2fffa0f8e45583ace30b9697d0d7474e8600e",
+  "version": "0.2.0",
+  "kernel": "AXM Genesis v1 / axm-hybrid1",
+  "fixture_sha256": "69a5433185f090c999acbc7b35a38f167c69c98ebf329bd5ad544716bba82372",
+  "fixture_trust": "Separate public demo key, distributed alongside this software. Not independent publisher authentication.",
+  "source_selection": "Explicit public-document excerpts; not an automatic extraction claim.",
+  "license": "Apache-2.0",
+  "public_source_contains_live_private_keys": false
+}

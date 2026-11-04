@@ -1,0 +1,12 @@
+blake3==1.0.11
+cffi==2.1.1
+click==8.5.0
+dilithium-py==1.5.1
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+pycparser==3.12
+pygments==2.21.0
+pynacl==1.6.2
+pytest==9.2.0
+ruff==0.17.3

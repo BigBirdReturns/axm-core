@@ -1,0 +1,54 @@
+name: Knowledge Pack public reference
+on:
+  push:
+    branches: [main]
+    paths: ['examples/knowledge-pack/**', '.github/workflows/knowledge-pack.yml']
+  pull_request:
+    paths: ['examples/knowledge-pack/**', '.github/workflows/knowledge-pack.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: knowledge-pack-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: examples/knowledge-pack
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: examples/knowledge-pack/go/go.sum
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Build public native and browser artifacts; run all conformance vectors
+        run: python scripts/build.py --test --web --native
+      - name: Install the included Python kernel with pinned test dependencies
+        run: |
+          python -m pip install -r requirements-test.txt
+          python -m pip install --no-deps ./vendor/axm-genesis
+      - name: Qualify the creator using a fresh ephemeral identity
+        run: python scripts/test_creator.py
+      - name: Exercise the real browser, all WebAssembly vectors, and offline verification
+        run: python scripts/browser_test.py
+      - name: Retain inspectable public-build receipts and artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-pack-${{ github.sha }}
+          path: |
+            examples/knowledge-pack/build/native-conformance.json
+            examples/knowledge-pack/build/browser
+            examples/knowledge-pack/web
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axm-genesis"
+# Version is single-sourced from axm_verify.__version__ (currently 1.0.0rc1).
+dynamic = ["version"]
+description = "Protocol for immutable, content-addressed knowledge graphs"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+dependencies = [
+  "blake3>=0.4.0",
+  "pynacl>=1.5.0",
+  "click>=8.0.0",
+]
+
+[project.optional-dependencies]
+mldsa = [
+  "liboqs-python>=0.11.0",
+]
+mldsa-compat = [
+  "dilithium-py>=0.5.0",
+]
+# deprecated alias of mldsa (remove after v1.0.0)
+pq = [
+  "liboqs-python>=0.11.0",
+]
+# deprecated alias of mldsa-compat (remove after v1.0.0)
+pq-compat = [
+  "dilithium-py>=0.5.0",
+]
+dev = [
+  "pytest>=7.0",
+  "ruff>=0.1.0",
+  "dilithium-py>=0.5.0",
+]
+
+[project.scripts]
+axm-verify = "axm_verify.cli:main"
+axm-build = "axm_build.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {attr = "axm_verify.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff.lint]
+# Ruff 0.16 expanded the zero-configuration default from 59 rules to 413.
+# Declare the repository's established pre-0.16 lint surface explicitly so
+# dependency upgrades cannot silently redefine the blocking CI contract.
+select = ["E4", "E7", "E9", "F"]

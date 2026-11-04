@@ -1,0 +1,12 @@
+build/
+.venv/
+demo-state/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.key
+web/downloads/
+web/verifier.wasm
+web/wasm_exec.js
+web/release.json
+web/SHA256SUMS.txt

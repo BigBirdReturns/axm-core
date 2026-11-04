@@ -1,0 +1,72 @@
+name: Knowledge Pack public source intake
+on:
+  push:
+    branches: [publish/knowledge-pack-public-20261103]
+    paths: ['.github/knowledge-pack-bootstrap/**', '.github/workflows/knowledge-pack-bootstrap.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: knowledge-pack-source-intake
+  cancel-in-progress: false
+jobs:
+  materialize-and-qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: publish/knowledge-pack-public-20261103
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Import only the exact approved public source archive
+        run: python .github/knowledge-pack-bootstrap/materialize.py
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+          cache-dependency-path: examples/knowledge-pack/go/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Rebuild and test native and WebAssembly artifacts from clean source
+        working-directory: examples/knowledge-pack
+        run: python scripts/build.py --test --web --native
+      - name: Install the included Python kernel and pinned test dependencies
+        working-directory: examples/knowledge-pack
+        run: |
+          python -m pip install -r requirements-test.txt
+          python -m pip install --no-deps ./vendor/axm-genesis
+      - name: Exercise fresh-identity creator and actual static browser
+        working-directory: examples/knowledge-pack
+        run: |
+          python scripts/test_creator.py
+          python scripts/browser_test.py
+      - name: Commit only the qualified public reference source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- examples/knowledge-pack
+          if git diff --cached --name-only | grep -v '^examples/knowledge-pack/'; then
+            echo 'Unexpected staged path'; exit 1
+          fi
+          if git diff --cached --name-only | grep -E '(^|/)(identity|demo-state)/|\.key$'; then
+            echo 'Private state must not be published'; exit 1
+          fi
+          git commit -m 'Publish reproducible knowledge-pack reference, fixtures, and browser verifier'
+          git push origin HEAD:publish/knowledge-pack-public-20261103
+          git rev-parse HEAD
+      - name: Retain clean-runner acceptance and the public site artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-pack-intake-${{ github.run_id }}
+          path: |
+            examples/knowledge-pack/INTAKE.json
+            examples/knowledge-pack/build/native-conformance.json
+            examples/knowledge-pack/build/browser
+            examples/knowledge-pack/web
+          if-no-files-found: error
+          retention-days: 30
