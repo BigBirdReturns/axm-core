@@ -1,6 +1,6 @@
 """Build the public reference from this source tree, without estate paths or credentials."""
 from __future__ import annotations
-import argparse,hashlib,json,os,platform,shutil,subprocess,sys,zipfile
+import argparse,hashlib,json,os,shutil,subprocess,sys,tempfile,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -11,7 +11,9 @@ def run(command,*,cwd=None,env=None):
 def write_zip(destination:Path,files:dict[str,Path]):
     with zipfile.ZipFile(destination,'w',compression=zipfile.ZIP_DEFLATED) as z:
         for name,path in sorted(files.items()):
-            info=zipfile.ZipInfo(name,date_time=(1980,1,1,0,0,0));info.compress_type=zipfile.ZIP_DEFLATED;info.external_attr=0o100644<<16
+            info=zipfile.ZipInfo(name,date_time=(1980,1,1,0,0,0))
+            info.compress_type=zipfile.ZIP_DEFLATED
+            info.external_attr=(0o100755 if name=='axm-pack-reader' else 0o100644)<<16
             z.writestr(info,path.read_bytes())
 
 def main():
@@ -43,13 +45,29 @@ def main():
             for p in (ROOT/'third-party-notices').iterdir():
                 if p.is_file():files['third-party-notices/'+p.name]=p
             write_zip(downloads/f'axm-pack-reader-{target}-amd64.zip',files)
-    # A clean source archive excludes caches, binaries, local state, and all secret-key files.
-    files={}
+        if args.test and sys.platform.startswith('linux'):
+            with zipfile.ZipFile(downloads/'axm-pack-reader-linux-amd64.zip') as z:
+                info=z.getinfo('axm-pack-reader')
+                assert (info.external_attr>>16)&0o111,'Linux reader must remain executable after unzip'
+                with tempfile.TemporaryDirectory(prefix='axm-shipped-reader-') as temp:
+                    directory=Path(temp)
+                    for name in ['axm-pack-reader','example.axmpack.zip','trusted-demo.pub']:
+                        (directory/name).write_bytes(z.read(name))
+                    (directory/'axm-pack-reader').chmod((info.external_attr>>16)&0o777)
+                    result=subprocess.run([str(directory/'axm-pack-reader'),'inspect',str(directory/'example.axmpack.zip'),'--trusted-key',str(directory/'trusted-demo.pub')],capture_output=True,text=True,check=True,timeout=20)
+                    assert json.loads(result.stdout)['status']=='PASS'
+            (build/'shipped-archive-check.json').write_text(json.dumps({'status':'PASS','archive':'axm-pack-reader-linux-amd64.zip','executable_mode_preserved':True,'extracted_reader_verified_pack':True},indent=2)+'\n')
+    # Whitelist source areas and exclude local environments, authoring state, keys and caches.
+    files={};allowed={'go','scripts','tests','fixtures','web','vendor','third-party-notices'}
+    root_files={'README.md','LICENSE','TRANSPORT.md','SOURCE-PROVENANCE.json','INTAKE.json','requirements-test.txt','.gitignore','pack.py','studio.py','build_example.py'}
+    excluded={'build','.git','__pycache__','.pytest_cache','downloads','.venv','venv','demo-state','state','identity'}
     for p in sorted(ROOT.rglob('*')):
-        if not p.is_file():continue
+        if not p.is_file() or p.is_symlink():continue
         rel=p.relative_to(ROOT)
-        if any(x in {'build','.git','__pycache__','.pytest_cache','downloads'} for x in rel.parts):continue
-        if p.suffix in {'.pyc','.key','.wasm'} or p.name in {'wasm_exec.js','SHA256SUMS.txt','release.json'}:continue
+        if len(rel.parts)==1 and rel.name not in root_files:continue
+        if len(rel.parts)>1 and rel.parts[0] not in allowed:continue
+        if any(x in excluded or x.endswith('.egg-info') for x in rel.parts):continue
+        if p.suffix in {'.pyc','.key','.wasm'} or p.name in {'.env','wasm_exec.js','SHA256SUMS.txt','release.json'}:continue
         files['axm-knowledge-pack/'+str(rel)]=p
     write_zip(downloads/'axm-knowledge-pack-source-0.2.0.zip',files)
     hashes={str(p.relative_to(web)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(web.rglob('*')) if p.is_file() and p.name not in {'SHA256SUMS.txt','release.json'}}
