@@ -1,0 +1,14 @@
+{
+  "origin": "https://github.com/BigBirdReturns/axm-genesis/tree/main/verifiers/go/internal/axm",
+  "retained_input_sha256": {
+    "ids.go": "a1d406c63690dbaaaee160ab84e8d9c5bbbfb108cfa9a5d343f7e0f16edc94d1",
+    "merkle.go": "dc0fdc1c05231fe9b8f5a9790940fdbbb237350da43a85450bd30fe1c68efceb",
+    "embodied.go": "119828b5df05e0fd165966b24658d885195db2c1ba116e100fa3c5af80f064e9",
+    "canonical.go": "9e5d1b982aab10031e380037302d52c7d152f19a9886f23534e15a2330a03eb0",
+    "verify.go": "d7b12da3cff6697a8121aca0d5483e1e83f06d13ea84cd31bcbd6bbea8d2ae03",
+    "manifest.go": "131d594f56f26c9886ef80cd1daa87fe20dc5d2bf1fd42ca326c9e90c3c3c5a4",
+    "tables.go": "f6de7edd8db787b06eea1d85a361c99a8f4eada73ac14597ef9696c7d2f343e5"
+  },
+  "modification": "Replace operating-system filesystem reads with explicit io/fs.FS input. Verification stages and cryptographic constructions retained. The authoritative Genesis repository is unchanged.",
+  "admission": "Subject to public conformance vectors and Python/Go/wasm parity tests."
+}

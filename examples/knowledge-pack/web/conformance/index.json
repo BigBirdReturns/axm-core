@@ -1,0 +1,359 @@
+{
+  "profile": "axm-pack-preview/0.1",
+  "version": "0.2.0",
+  "cases": [
+    {
+      "name": "kernel-gold",
+      "operation": "vector",
+      "file": "kernel-gold.zip",
+      "key": "canonical.pub",
+      "expected_status": "PASS",
+      "expected_codes": [],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "4f826ce5c81f35d73849b81a8b122fbed906999e2641b122987d2686c2a8fea2",
+      "expected_exit": 0
+    },
+    {
+      "name": "kernel-valid-minimal",
+      "operation": "vector",
+      "file": "kernel-valid-minimal.zip",
+      "key": "ci-test.pub",
+      "expected_status": "PASS",
+      "expected_codes": [],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "1a9658b8bf4f37ae18cc406c11a7f1b3ae61f3e638754365ac267c1e049d8b36",
+      "expected_exit": 0
+    },
+    {
+      "name": "kernel-valid-valid_embodied",
+      "operation": "vector",
+      "file": "kernel-valid-valid_embodied.zip",
+      "key": "ci-test.pub",
+      "expected_status": "PASS",
+      "expected_codes": [],
+      "profiles_checked": [
+        "embodied@1"
+      ],
+      "profiles_unchecked": [],
+      "sha256": "429ffe6e2d4067c6cf7fdd9cfd0c54216a00024560dc3ca7584c4892c5e5738c",
+      "expected_exit": 0
+    },
+    {
+      "name": "kernel-invalid-bad_signature_ed25519_half",
+      "operation": "vector",
+      "file": "kernel-invalid-bad_signature_ed25519_half.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SIG_INVALID"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "2eba807d8422baa77c63c17734367bcfd8801743e3b305b043d629f7287fc28a",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-bad_signature_mldsa_half",
+      "operation": "vector",
+      "file": "kernel-invalid-bad_signature_mldsa_half.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SIG_INVALID"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "ca0a13000efc2f5216a047f3712e78b7cda6e63ed0af967e2580e8dfba9fa695",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-dup_primary_key",
+      "operation": "vector",
+      "file": "kernel-invalid-dup_primary_key.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SCHEMA_READ"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "74dbec3116fc0d52e972ee97d12fa0fa7927715e2215374c5f170e644abc1023",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-invalid_embodied_gap",
+      "operation": "vector",
+      "file": "kernel-invalid-invalid_embodied_gap.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_BUFFER_DISCONTINUITY"
+      ],
+      "profiles_checked": [
+        "embodied@1"
+      ],
+      "profiles_unchecked": [],
+      "sha256": "18234178566af8ebf784e54e0b414eac9a64244f43765be98005bb7a654a753f",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-manifest_shard_id_present",
+      "operation": "vector",
+      "file": "kernel-invalid-manifest_shard_id_present.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_MANIFEST_SCHEMA"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "2fed30068859b7eb08ed8016dc2013516d27139711f620d792cd68af6f35e081",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-merkle_mismatch",
+      "operation": "vector",
+      "file": "kernel-invalid-merkle_mismatch.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_MERKLE_MISMATCH"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "3f790942a495f4c170e347937bc515c2c50c7b53caf3b269fe7dd457c935fc67",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-missing_field",
+      "operation": "vector",
+      "file": "kernel-invalid-missing_field.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SCHEMA_NULL"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "ffb336e68e7c315624e7c0ca21e35498d2386ea25f53abda1880e78ac162e50a",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-missing_manifest",
+      "operation": "vector",
+      "file": "kernel-invalid-missing_manifest.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_LAYOUT_MISSING"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "e0effb01338f0532a227371cb6edcb2a901d397ba9575530d3df7a18b7e1a841",
+      "expected_exit": 2
+    },
+    {
+      "name": "kernel-invalid-orphan_claim",
+      "operation": "vector",
+      "file": "kernel-invalid-orphan_claim.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_REF_ORPHAN"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "cf01cd401a2c8eb70b2e2c8a2954c3cfbdc1fc329679e631bbf2d81d9a0afc87",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-sources_bijection_extra_file",
+      "operation": "vector",
+      "file": "kernel-invalid-sources_bijection_extra_file.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_MANIFEST_SCHEMA"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "e0ffe39ef72655c5eaf27ce95d9cb5adf9817521e312ece3bfc5c89887cb2124",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-sources_bijection_missing_entry",
+      "operation": "vector",
+      "file": "kernel-invalid-sources_bijection_missing_entry.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_MANIFEST_SCHEMA"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "fd05478db099f1340a93cd759c225b2a83c563d159e8501644d09e8da9557723",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-statistics_mismatch",
+      "operation": "vector",
+      "file": "kernel-invalid-statistics_mismatch.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_MANIFEST_SCHEMA"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "855be76f487b986ab803ea617d74427c7f6fd46763194cd9e4a3b6badde3da2e",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-unknown_suite",
+      "operation": "vector",
+      "file": "kernel-invalid-unknown_suite.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_MANIFEST_SCHEMA"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "e20b132ed353cb27c21fddf903da18afbb122855d98f4d201f0d8e8cfdf31a0b",
+      "expected_exit": 1
+    },
+    {
+      "name": "kernel-invalid-unsorted_rows",
+      "operation": "vector",
+      "file": "kernel-invalid-unsorted_rows.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SCHEMA_READ"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "b2ba50face8158c933e2ecdf69bee9ab36c95894cbee73215fa8d8703922c710",
+      "expected_exit": 1
+    },
+    {
+      "name": "pack-valid",
+      "operation": "open",
+      "file": "pack-valid.zip",
+      "key": "demo.pub",
+      "expected_status": "PASS",
+      "expected_codes": [],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "69a5433185f090c999acbc7b35a38f167c69c98ebf329bd5ad544716bba82372",
+      "expected_exit": 0
+    },
+    {
+      "name": "pack-tamper-source",
+      "operation": "open",
+      "file": "pack-tamper-source.zip",
+      "key": "demo.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_MERKLE_MISMATCH"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "b1aeb876a9fc9467428c5c90d086f0fc829a990409d363d14aed03442bc0327c",
+      "expected_exit": 1
+    },
+    {
+      "name": "pack-tamper-ed25519",
+      "operation": "open",
+      "file": "pack-tamper-ed25519.zip",
+      "key": "demo.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SIG_INVALID"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "8ddf1c48595a5d88a7588c8fcc0b55051853afc126b6b303bd154f0f0fe0ddb3",
+      "expected_exit": 1
+    },
+    {
+      "name": "pack-tamper-mldsa",
+      "operation": "open",
+      "file": "pack-tamper-mldsa.zip",
+      "key": "demo.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SIG_INVALID"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "174d71b27790bb764a60d97d8a0f049dd84743e3f47c65ff84eb4c0cfa269a99",
+      "expected_exit": 1
+    },
+    {
+      "name": "pack-wrong-key",
+      "operation": "open",
+      "file": "pack-wrong-key.zip",
+      "key": "ci-test.pub",
+      "expected_status": "FAIL",
+      "expected_codes": [
+        "E_SIG_INVALID"
+      ],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "69a5433185f090c999acbc7b35a38f167c69c98ebf329bd5ad544716bba82372",
+      "expected_exit": 1
+    },
+    {
+      "name": "pack-false-head",
+      "operation": "open",
+      "file": "pack-false-head.zip",
+      "key": "demo.pub",
+      "expected_status": "ERROR",
+      "expected_codes": [],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "f4af55ab15cb027778b6d66929214ba79f892023c4ab76fa9a91653dcfc2336c",
+      "expected_exit": 2
+    },
+    {
+      "name": "pack-missing-history",
+      "operation": "open",
+      "file": "pack-missing-history.zip",
+      "key": "demo.pub",
+      "expected_status": "ERROR",
+      "expected_codes": [],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "b759b3ddf16d5eae916c5091d92066ebd92eb6a409af0eea5936306c7c3ca027",
+      "expected_exit": 2
+    },
+    {
+      "name": "pack-traversal",
+      "operation": "open",
+      "file": "pack-traversal.zip",
+      "key": "demo.pub",
+      "expected_status": "ERROR",
+      "expected_codes": [],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "5a5239d477a316b7ec4f1deacb06fc11980fb3aa6d91a8b1cbfa9a40485d5180",
+      "expected_exit": 2
+    },
+    {
+      "name": "pack-duplicate-json",
+      "operation": "open",
+      "file": "pack-duplicate-json.zip",
+      "key": "demo.pub",
+      "expected_status": "ERROR",
+      "expected_codes": [],
+      "profiles_checked": [],
+      "profiles_unchecked": [],
+      "sha256": "eacbbb4dab8e22c95f4b7190cce2501e404f7b4a8145bd7e3e60d2588453a5e7",
+      "expected_exit": 2
+    }
+  ],
+  "scope": "Kernel and transport interoperability fixtures. CI and demo public keys authenticate test data only; no production publisher identity is claimed."
+}
