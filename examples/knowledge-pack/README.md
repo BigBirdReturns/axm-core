@@ -1,6 +1,6 @@
 # AXM Knowledge Pack: public reference 0.2.0
 
-[Open the browser demonstration](https://bigbirdreturns.github.io/axm-tools/knowledge-pack/) · [Transport profile](TRANSPORT.md) · [Conformance vectors](web/conformance/index.json)
+[Why this matters](https://bigbirdreturns.github.io/axm-tools/knowledge-pack-open/) · [Open the browser demonstration](https://bigbirdreturns.github.io/axm-tools/knowledge-pack/) · [Independent reader challenge](https://github.com/BigBirdReturns/axm-core/issues/58) · [Transport profile](TRANSPORT.md) · [Conformance vectors](web/conformance/index.json)
 
 Open a real package, follow retained claims to exact source bytes, inspect its signed history, and run actual tamper checks. The browser downloads a WebAssembly verifier, then works locally. Opening a personal file sends no file content to a server. No account, model, backend service, or installation is needed for the browser demonstration.
 
