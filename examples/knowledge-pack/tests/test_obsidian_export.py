@@ -130,7 +130,7 @@ def test_head_and_history_keep_composite_claim_identity(inspected, projection):
                 assert f"[{start}, {end})" in body
     assert claims_by_record[0] & claims_by_record[1], "Fixture must exercise a repeated claim across editions"
     assert len(pairs) == metadata["counts"]["claims"] == 4
-    assert all(page["shard_id"] == metadata["head"] for path, page in pages.items() if path.startswith("current/"))
+    assert all(page["shard_id"] == metadata["head"] for path, page in pages.items() if path.startswith("current/"))  # drift-ok: compare verified-derived IDs
     assert all(page["shard_id"] != metadata["head"] for path, page in pages.items() if path.startswith("history/"))
 
 
