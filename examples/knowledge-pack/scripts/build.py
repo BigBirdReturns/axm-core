@@ -59,7 +59,7 @@ def main():
             (build/'shipped-archive-check.json').write_text(json.dumps({'status':'PASS','archive':'axm-pack-reader-linux-amd64.zip','executable_mode_preserved':True,'extracted_reader_verified_pack':True},indent=2)+'\n')
     # Whitelist source areas and exclude local environments, authoring state, keys and caches.
     files={};allowed={'go','scripts','tests','fixtures','web','vendor','third-party-notices'}
-    root_files={'README.md','LICENSE','TRANSPORT.md','SOURCE-PROVENANCE.json','INTAKE.json','requirements-test.txt','.gitignore','pack.py','studio.py','build_example.py'}
+    root_files={'README.md','LICENSE','TRANSPORT.md','OBSIDIAN.md','SOURCE-PROVENANCE.json','INTAKE.json','requirements-test.txt','requirements-obsidian.txt','.gitignore','pack.py','studio.py','build_example.py','obsidian_bridge.py','obsidian_export.py'}
     excluded={'build','.git','__pycache__','.pytest_cache','downloads','.venv','venv','demo-state','state','identity'}
     for p in sorted(ROOT.rglob('*')):
         if not p.is_file() or p.is_symlink():continue
@@ -67,7 +67,7 @@ def main():
         if len(rel.parts)==1 and rel.name not in root_files:continue
         if len(rel.parts)>1 and rel.parts[0] not in allowed:continue
         if any(x in excluded or x.endswith('.egg-info') for x in rel.parts):continue
-        if p.suffix in {'.pyc','.key','.wasm'} or p.name in {'.env','wasm_exec.js','SHA256SUMS.txt','release.json'}:continue
+        if p.suffix in {'.pyc','.key','.wasm','.whl'} or p.name in {'.env','wasm_exec.js','SHA256SUMS.txt','release.json'}:continue
         files['axm-knowledge-pack/'+str(rel)]=p
     write_zip(downloads/'axm-knowledge-pack-source-0.2.0.zip',files)
     hashes={str(p.relative_to(web)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(web.rglob('*')) if p.is_file() and p.name not in {'SHA256SUMS.txt','release.json'}}
