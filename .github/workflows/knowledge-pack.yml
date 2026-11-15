@@ -37,6 +37,10 @@ jobs:
         run: |
           python -m pip install -r requirements-test.txt
           python -m pip install --no-deps ./vendor/axm-genesis
+      - name: Install the hash-pinned optional Obsidian retrieval library
+        run: python -m pip install --require-hashes --only-binary=:all: -r requirements-obsidian.txt
+      - name: Qualify the Obsidian export and real-library retrieval boundaries
+        run: PYTHONPATH=. python -m pytest -q tests/test_obsidian_export.py tests/test_obsidian_bridge.py
       - name: Qualify the creator using a fresh ephemeral identity
         run: python scripts/test_creator.py
       - name: Exercise the real browser, all WebAssembly vectors, and offline verification
