@@ -1,0 +1,7 @@
+# Optional local workbench runtime. Genesis and obsidian-wiki retain their own pins.
+duckdb==2.0.0
+cryptography==50.0.2
+watchfiles==1.1.1
+anyio==4.16.0
+idna==3.20
+typing_extensions==4.16.0

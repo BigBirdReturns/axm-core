@@ -35,4 +35,4 @@ add('pack-traversal',archive({'../outside.txt':b'not executable'}),'demo.pub','E
 add('pack-duplicate-json',archive({'pack.json':b'{"format":"x","format":"y"}'}),'demo.pub','ERROR',kind='open')
 for case in cases:
  case['expected_exit']=0 if case['expected_status']=='PASS' else 2 if case['expected_status']=='ERROR' or (case['operation']=='vector' and case['expected_codes'] and set(case['expected_codes'])<={'E_LAYOUT_MISSING','E_SCHEMA_MISSING','E_SIG_MISSING'}) else 1
-(OUT/'index.json').write_text(json.dumps({'profile':'axm-pack-preview/0.1','version':'0.3.0','cases':cases,'scope':'Kernel and transport interoperability fixtures. CI and demo public keys authenticate test data only; no production publisher identity is claimed.'},indent=2)+'\n')
+(OUT/'index.json').write_text(json.dumps({'profile':'axm-pack-preview/0.1','version':'0.4.0','cases':cases,'scope':'Kernel and transport interoperability fixtures. CI and demo public keys authenticate test data only; no production publisher identity is claimed.'},indent=2)+'\n')

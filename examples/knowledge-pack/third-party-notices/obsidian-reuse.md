@@ -23,3 +23,7 @@ The evidence table follows the official [Bases syntax](https://help.obsidian.md/
 ## AXM-authored boundary
 
 `obsidian_bridge.py` and `obsidian_export.py` are authored within this Apache-2.0 reference. Their layouts and Markdown projection are not copied from `kepano/kepano-obsidian` or any personal vault template. Genesis retains cryptographic verification and canonical identity ownership. The upstream search library operates only on the derived presentation.
+
+## Workbench integration
+
+The workbench also calls the pinned obsidian-wiki vault selection/frontmatter primitives, metadata parser, context assembler, and its qualified wikilink syntax. It reuses watchfiles 1.1.1 for OS change notification, DuckDB 2.0.0 for Spectra query execution, and cryptography 50.0.2 for Spectra local-catalog support. These dependencies are installed separately; no wheel or copied upstream implementation is bundled. Forge and Spectra files inside the source kit are exact packaged copies of their existing AXM Core source owners, listed with byte hashes in runtime/SOURCE-MAP.json. They are regenerated at build time, not independently maintained forks.

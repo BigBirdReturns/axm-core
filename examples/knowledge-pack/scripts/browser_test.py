@@ -16,8 +16,10 @@ def main():
    server=http.server.ThreadingHTTPServer(('127.0.0.1',0),functools.partial(http.server.SimpleHTTPRequestHandler,directory=str(ROOT/'web')))
    threading.Thread(target=server.serve_forever,daemon=True).start();origin=f'http://127.0.0.1:{server.server_port}/'
   else:origin=a.origin
-  args=[chrome,'--headless=new','--disable-gpu','--disable-dev-shm-usage','--disable-background-networking','--disable-component-update','--no-first-run','--no-default-browser-check','--disable-sync','--metrics-recording-only','--renderer-process-limit=2','--remote-debugging-port=0','--user-data-dir='+str(profile),'about:blank']
+  args=[chrome,'--headless=new','--disable-gpu','--disable-dev-shm-usage','--disable-background-networking','--disable-component-update','--no-first-run','--no-default-browser-check','--disable-sync','--metrics-recording-only','--renderer-process-limit=1','--num-raster-threads=1','--disable-extensions','--disable-features=SpareRendererForSitePerProcess','--remote-debugging-port=0','--user-data-dir='+str(profile),'about:blank']
   if os.environ.get('CI')=='true':args.insert(1,'--no-sandbox')
+  if hasattr(os,'sched_getaffinity') and shutil.which('taskset'):
+   cpus=sorted(os.sched_getaffinity(0))[:2];args=[shutil.which('taskset'),'-c',','.join(map(str,cpus)),*args]
   child=subprocess.Popen(args,stdout=log,stderr=subprocess.STDOUT)
   try:
    for _ in range(100):
