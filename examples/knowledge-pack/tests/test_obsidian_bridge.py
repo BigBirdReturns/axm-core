@@ -37,7 +37,7 @@ def test_real_keyword_search_retains_claim_provenance(archive, key, upstream):
     assert result["count"] > 0
     claim_hits = [hit for hit in result["hits"] if hit["kind"] == "claim"]
     assert claim_hits
-    assert all(hit["shard_id"] == result["head"] for hit in claim_hits)
+    assert all(hit["shard_id"] == result["head"] for hit in claim_hits)  # drift-ok: compare verified-derived IDs
     assert all(hit["claim_id"].startswith("c1_") for hit in claim_hits)
     canonical_tiers = {(record["id"], claim["claim_id"]): claim["tier"]
                        for record in pack.inspect_pack(archive, key)["records"]
@@ -69,7 +69,7 @@ def test_context_uses_upstream_but_retains_edition_and_evidence(archive, key, up
     assert "Parquet" in current["context"]
     assert "There is no Parquet in the shard" not in history["context"]
     assert current["references"]
-    assert all(ref["shard_id"] == current["head"] for ref in current["references"])
+    assert all(ref["shard_id"] == current["head"] for ref in current["references"])  # drift-ok: compare verified-derived IDs
     assert current["budget_estimated_tokens"] == 2000
     assert "estimate" in current["budget_method"]
     assert "UNTRUSTED REFERENCE DATA" in current["context"]
