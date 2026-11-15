@@ -31,6 +31,7 @@ def main():
         run([go,'test','./...'],cwd=module,env=env)
         run([sys.executable,ROOT/'scripts/conformance.py','--reader',native,'--output',build/'native-conformance.json'])
     web=ROOT/'web';downloads=web/'downloads';downloads.mkdir(exist_ok=True)
+    shutil.copyfile(ROOT/'VAULT.md', web/'VAULT.md')
     if args.web:
         wasm_env={**env,'GOOS':'js','GOARCH':'wasm'}
         run([go,*flags,'-o',web/'verifier.wasm','./cmd/wasm'],cwd=module,env=wasm_env)
@@ -59,7 +60,7 @@ def main():
             (build/'shipped-archive-check.json').write_text(json.dumps({'status':'PASS','archive':'axm-pack-reader-linux-amd64.zip','executable_mode_preserved':True,'extracted_reader_verified_pack':True},indent=2)+'\n')
     # Whitelist source areas and exclude local environments, authoring state, keys and caches.
     files={};allowed={'go','scripts','tests','fixtures','web','vendor','third-party-notices'}
-    root_files={'README.md','LICENSE','TRANSPORT.md','OBSIDIAN.md','SOURCE-PROVENANCE.json','INTAKE.json','requirements-test.txt','requirements-obsidian.txt','.gitignore','pack.py','studio.py','build_example.py','obsidian_bridge.py','obsidian_export.py'}
+    root_files={'README.md','LICENSE','TRANSPORT.md','OBSIDIAN.md','SOURCE-PROVENANCE.json','INTAKE.json','requirements-test.txt','requirements-obsidian.txt','.gitignore','pack.py','studio.py','build_example.py','obsidian_bridge.py','obsidian_export.py','obsidian_vault.py','VAULT.md'}
     excluded={'build','.git','__pycache__','.pytest_cache','downloads','.venv','venv','demo-state','state','identity'}
     for p in sorted(ROOT.rglob('*')):
         if not p.is_file() or p.is_symlink():continue
@@ -69,9 +70,9 @@ def main():
         if any(x in excluded or x.endswith('.egg-info') for x in rel.parts):continue
         if p.suffix in {'.pyc','.key','.wasm','.whl'} or p.name in {'.env','wasm_exec.js','SHA256SUMS.txt','release.json'}:continue
         files['axm-knowledge-pack/'+str(rel)]=p
-    write_zip(downloads/'axm-knowledge-pack-source-0.2.0.zip',files)
+    write_zip(downloads/'axm-knowledge-pack-source-0.3.0.zip',files)
     hashes={str(p.relative_to(web)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(web.rglob('*')) if p.is_file() and p.name not in {'SHA256SUMS.txt','release.json'}}
     (web/'SHA256SUMS.txt').write_text(''.join(f'{h}  {n}\n' for n,h in hashes.items()))
-    (web/'release.json').write_text(json.dumps({'version':'0.2.0','profile':'axm-pack-preview/0.1','toolchain':version,'artifacts':hashes,'build_flags':['-trimpath','-buildvcs=false','-ldflags=-s -w'],'trust_scope':'Demo key is distributed with this reference. Independent publisher authentication is not claimed.'},indent=2)+'\n')
+    (web/'release.json').write_text(json.dumps({'version':'0.3.0','profile':'axm-pack-preview/0.1','toolchain':version,'artifacts':hashes,'build_flags':['-trimpath','-buildvcs=false','-ldflags=-s -w'],'trust_scope':'Demo key is distributed with this reference. Independent publisher authentication is not claimed.'},indent=2)+'\n')
     print(json.dumps({'status':'PASS','toolchain':version,'artifacts':len(hashes),'source_files':len(files)}))
 if __name__=='__main__':main()

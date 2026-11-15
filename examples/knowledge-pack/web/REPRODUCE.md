@@ -2,7 +2,7 @@
 
 Source: https://github.com/BigBirdReturns/axm-core/tree/main/examples/knowledge-pack
 
-Download `downloads/axm-knowledge-pack-source-0.2.0.zip` or clone the repository. Enter its `examples/knowledge-pack` directory (the archive uses `axm-knowledge-pack`). With Python 3.12+ and Go 1.24+, run:
+Download `downloads/axm-knowledge-pack-source-0.3.0.zip` or clone the repository. Enter its `examples/knowledge-pack` directory (the archive uses `axm-knowledge-pack`). With Python 3.12+ and Go 1.24+, run:
 
 ```
 python scripts/build.py --test --web --native
