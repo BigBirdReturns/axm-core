@@ -17,7 +17,19 @@ async function fill(selector,value){await evaluate(`document.querySelector(${JSO
 async function state(){return await evaluate(`fetch('/api/state').then(r=>r.json())`);}
 async function snapshot(name){const s=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await fs.writeFile(path.join(out,name+'.png'),Buffer.from(s.data,'base64'));}
 function pass(name,detail={}){results.push({name,status:'PASS',...detail});}
-async function waitJobs(){await wait(`fetch('/api/state').then(r=>r.json()).then(s=>s.jobs.length&&s.jobs.every(j=>!['queued','running'].includes(j.state)))`);await click('#reload');await wait(`document.getElementById('connection').textContent==='Local service connected'`);const s=await state();assert.equal(s.jobs[0].state,'completed',JSON.stringify(s.jobs[0]));}
+let lastCompletedJob=null;
+async function waitJobs(){
+  // A click schedules fetch asynchronously. Bind to a NEW durable job before
+  // accepting terminal state, otherwise a fast runner can observe the old job.
+  const previous=lastCompletedJob;
+  await wait(`fetch('/api/state').then(r=>r.json()).then(s=>s.jobs.length&&s.jobs[0].id!==${JSON.stringify(previous)}&&s.jobs.every(j=>!['queued','running'].includes(j.state)))`);
+  const terminal=await state();
+  assert.notEqual(terminal.jobs[0].id,previous);
+  assert.equal(terminal.jobs[0].state,'completed',JSON.stringify(terminal.jobs[0]));
+  lastCompletedJob=terminal.jobs[0].id;
+  await click('#reload');
+  await wait(`document.getElementById('connection').textContent==='Local service connected'`);
+}
 async function reviewAndSeal(){await wait(`document.querySelectorAll('.candidate-select').length>0`);assert.equal(await evaluate(`document.querySelectorAll('.candidate-select:checked').length`),0);await evaluate(`Array.from(document.querySelectorAll('#review-content .toolbar button')).find(b=>b.textContent==='Select all proposals').click()`);await click('#seal');await waitJobs();}
 await call('Runtime.enable');await call('Page.enable');await call('Network.enable');
 await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
