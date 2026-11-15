@@ -1,0 +1,48 @@
+name: Exact Obsidian round-trip source intake
+on:
+  push:
+    branches: [transport/obsidian-roundtrip-20261115]
+    paths: ['.github/obsidian-roundtrip-intake/**', '.github/workflows/obsidian-roundtrip-intake.yml']
+permissions:
+  contents: write
+concurrency:
+  group: obsidian-roundtrip-source-intake-20261115
+  cancel-in-progress: false
+jobs:
+  import-exact-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify the retained source bundle, commit, tree and allowed paths
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, subprocess
+          bundle=Path('.github/obsidian-roundtrip-intake/source.bundle')
+          data=bundle.read_bytes()
+          assert len(data)==21964
+          assert hashlib.sha256(data).hexdigest()=='69369a05b1393563458505995bf7dc3d90b6fe33a88b534541fa8a61cd1fff31'
+          base='6b81d466ae7f3de766bfc7b442d5053a7f1b70bc'
+          expected='90cd1a4d37e1914e0bdadd4955da9d8b2efbe7be'
+          target='refs/heads/feat/obsidian-roundtrip-20261115'
+          subprocess.run(['git','bundle','verify',str(bundle)],check=True)
+          subprocess.run(['git','fetch',str(bundle),'HEAD'],check=True)
+          def git(*args):
+              return subprocess.check_output(['git',*args],text=True).strip()
+          assert git('rev-parse','FETCH_HEAD')==expected
+          assert git('rev-parse',expected+'^')==base
+          assert git('rev-parse',expected+'^{tree}')=='71aa26124c776607c160fb10f87973d31722a950'
+          allowed={'.github/workflows/knowledge-pack.yml','examples/knowledge-pack/.gitignore','examples/knowledge-pack/OBSIDIAN.md','examples/knowledge-pack/README.md','examples/knowledge-pack/obsidian_export.py','examples/knowledge-pack/scripts/build.py','examples/knowledge-pack/scripts/generate_vectors.py','examples/knowledge-pack/web/REPRODUCE.md','examples/knowledge-pack/web/app.js','examples/knowledge-pack/web/conformance/index.json','examples/knowledge-pack/web/index.html','examples/knowledge-pack/VAULT.md','examples/knowledge-pack/obsidian_vault.py','examples/knowledge-pack/tests/test_obsidian_vault.py'}
+          assert set(git('diff','--name-only',base,expected).splitlines())==allowed
+          assert not any(p.endswith(('.key','.pub','.bundle')) for p in allowed)
+          remote=git('ls-remote','--heads','origin',target)
+          if remote:
+              assert remote.split()[0]==expected, 'Existing feature branch has a different owner revision'
+          else:
+              subprocess.run(['git','push','origin',expected+':'+target],check=True)
+          assert git('ls-remote','--heads','origin',target).split()[0]==expected
+          print('EXACT_SOURCE_PUBLISHED',expected)
+          PY
