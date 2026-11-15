@@ -28,7 +28,7 @@ async function verifyLocal(operation,body){await startVerifier();return new Prom
 let sample=null;
 async function loadSample(){if(sample)return sample;const values=await Promise.all(['fixtures/example.axmpack.zip','fixtures/trusted-demo.pub'].map(async p=>{const r=await fetch(new URL(p,location.href));if(!r.ok)throw Error('Example download failed');return bytesToBase64(await r.arrayBuffer());}));sample={archive:values[0],trusted_key:values[1],filename:'axm-portability.axmpack.zip',trust_mode:'demo key distributed with this page; not independent publisher authentication'};return sample;}
 async function api(path,body){
- if(path==='config'){await startVerifier();return {creator:false,application:'Browser / Go WebAssembly verifier',version:'0.2.0'};}
+ if(path==='config'){await startVerifier();return {creator:false,application:'Browser / Go WebAssembly verifier',version:'0.3.0'};}
  if(path==='example')return loadSample();
  if(['open','challenge','vector'].includes(path))return verifyLocal(path,body);
  throw Error('Creation is available in the published source kit. This browser is a reader.');

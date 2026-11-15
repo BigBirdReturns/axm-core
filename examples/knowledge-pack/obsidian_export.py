@@ -190,7 +190,8 @@ def render_vault(
             cid = claim["claim_id"]
             claim_path = _note_path(sid, head, cid)
             claim_node = f"claim-{sid}-{cid}"
-            claim_title = _one_line(claim["object_label"])[:200] or cid
+            label = claim["subject_label"] if claim["predicate"] == "records_note" else claim["object_label"]
+            claim_title = _one_line(label)[:200] or cid
             summary = _one_line(
                 f"{claim['subject_label']} {claim['predicate']} {claim['object_label']}"
             )

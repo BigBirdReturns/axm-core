@@ -1,5 +1,7 @@
 # Obsidian export and maintained search
 
+For an existing editable vault, use the [reviewed vault round trip](VAULT.md): capture actual notes, approve the snapshot, seal a successor, and refresh native views without overwriting source notes or annotations.
+
 The bridge turns a verified AXM knowledge pack into linked Markdown, a native Obsidian Canvas, and a Bases evidence table. It uses the maintained `obsidian-wiki` Python API for lexical ranking and context assembly. Genesis continues to own artifact verification; the pack reader continues to own transport and signed history; this adapter owns the disposable projection between those boundaries.
 
 ## Install
