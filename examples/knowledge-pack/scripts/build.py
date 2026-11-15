@@ -8,13 +8,13 @@ def run(command,*,cwd=None,env=None):
     print('+ '+' '.join(map(str,command)),flush=True)
     subprocess.run(list(map(str,command)),cwd=cwd or ROOT,env=env,check=True)
 
-def write_zip(destination:Path,files:dict[str,Path]):
+def write_zip(destination:Path,files:dict[str,Path|bytes]):
     with zipfile.ZipFile(destination,'w',compression=zipfile.ZIP_DEFLATED) as z:
         for name,path in sorted(files.items()):
             info=zipfile.ZipInfo(name,date_time=(1980,1,1,0,0,0))
             info.compress_type=zipfile.ZIP_DEFLATED
-            info.external_attr=(0o100755 if name=='axm-pack-reader' else 0o100644)<<16
-            z.writestr(info,path.read_bytes())
+            info.external_attr=(0o100755 if name.endswith(('axm-pack-reader','.sh')) else 0o100644)<<16
+            z.writestr(info,path if isinstance(path,bytes) else path.read_bytes())
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -32,6 +32,7 @@ def main():
         run([sys.executable,ROOT/'scripts/conformance.py','--reader',native,'--output',build/'native-conformance.json'])
     web=ROOT/'web';downloads=web/'downloads';downloads.mkdir(exist_ok=True)
     shutil.copyfile(ROOT/'VAULT.md', web/'VAULT.md')
+    shutil.copyfile(ROOT/'WORKBENCH.md', web/'WORKBENCH.md')
     if args.web:
         wasm_env={**env,'GOOS':'js','GOARCH':'wasm'}
         run([go,*flags,'-o',web/'verifier.wasm','./cmd/wasm'],cwd=module,env=wasm_env)
@@ -59,8 +60,8 @@ def main():
                     assert json.loads(result.stdout)['status']=='PASS'
             (build/'shipped-archive-check.json').write_text(json.dumps({'status':'PASS','archive':'axm-pack-reader-linux-amd64.zip','executable_mode_preserved':True,'extracted_reader_verified_pack':True},indent=2)+'\n')
     # Whitelist source areas and exclude local environments, authoring state, keys and caches.
-    files={};allowed={'go','scripts','tests','fixtures','web','vendor','third-party-notices'}
-    root_files={'README.md','LICENSE','TRANSPORT.md','OBSIDIAN.md','SOURCE-PROVENANCE.json','INTAKE.json','requirements-test.txt','requirements-obsidian.txt','.gitignore','pack.py','studio.py','build_example.py','obsidian_bridge.py','obsidian_export.py','obsidian_vault.py','VAULT.md'}
+    files={};allowed={'scripts','go','vendor','fixtures','tests','web','workbench-web','third-party-notices'}
+    root_files={'README.md','LICENSE','TRANSPORT.md','OBSIDIAN.md','SOURCE-PROVENANCE.json','INTAKE.json','requirements-test.txt','requirements-obsidian.txt','.gitignore','pack.py','studio.py','build_example.py','obsidian_bridge.py','obsidian_export.py','obsidian_vault.py','VAULT.md','WORKBENCH.md','workbench_store.py','workbench_paths.py','workbench_collection.py','vault_workbench.py','requirements-workbench.txt','launch-workbench.cmd','launch-workbench.sh'}
     excluded={'build','.git','__pycache__','.pytest_cache','downloads','.venv','venv','demo-state','state','identity'}
     for p in sorted(ROOT.rglob('*')):
         if not p.is_file() or p.is_symlink():continue
@@ -69,10 +70,28 @@ def main():
         if len(rel.parts)>1 and rel.parts[0] not in allowed:continue
         if any(x in excluded or x.endswith('.egg-info') for x in rel.parts):continue
         if p.suffix in {'.pyc','.key','.wasm','.whl'} or p.name in {'.env','wasm_exec.js','SHA256SUMS.txt','release.json'}:continue
-        files['axm-knowledge-pack/'+str(rel)]=p
-    write_zip(downloads/'axm-knowledge-pack-source-0.3.0.zip',files)
+        files['axm-knowledge-pack/'+rel.as_posix()]=p
+    # Retain the maintained source owners, not a second edited runtime fork.
+    runtime_sources = {}
+    owner_root = ROOT.parents[1]
+    forge_root = owner_root/'forge/axm_forge'
+    spectra_root = owner_root/'spectra/axiom_runtime'
+    if not forge_root.is_dir():
+        forge_root = ROOT/'runtime/forge/axm_forge'
+        spectra_root = ROOT/'runtime/spectra/axiom_runtime'
+    for name in ('__init__.py','vault_extraction.py'):
+        source = forge_root/name
+        relative = 'runtime/forge/axm_forge/'+name
+        files['axm-knowledge-pack/'+relative] = source.read_bytes()
+        runtime_sources[relative] = {'owner':'forge/axm_forge/'+name,'sha256':hashlib.sha256(source.read_bytes()).hexdigest()}
+    for source in sorted(spectra_root.glob('*.py')):
+        relative = 'runtime/spectra/axiom_runtime/'+source.name
+        files['axm-knowledge-pack/'+relative] = source.read_bytes()
+        runtime_sources[relative] = {'owner':'spectra/axiom_runtime/'+source.name,'sha256':hashlib.sha256(source.read_bytes()).hexdigest()}
+    files['axm-knowledge-pack/runtime/SOURCE-MAP.json'] = (json.dumps(runtime_sources,sort_keys=True,indent=2)+'\n').encode()
+    write_zip(downloads/'axm-knowledge-pack-source-0.4.0.zip',files)
     hashes={str(p.relative_to(web)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(web.rglob('*')) if p.is_file() and p.name not in {'SHA256SUMS.txt','release.json'}}
     (web/'SHA256SUMS.txt').write_text(''.join(f'{h}  {n}\n' for n,h in hashes.items()))
-    (web/'release.json').write_text(json.dumps({'version':'0.3.0','profile':'axm-pack-preview/0.1','toolchain':version,'artifacts':hashes,'build_flags':['-trimpath','-buildvcs=false','-ldflags=-s -w'],'trust_scope':'Demo key is distributed with this reference. Independent publisher authentication is not claimed.'},indent=2)+'\n')
+    (web/'release.json').write_text(json.dumps({'version':'0.4.0','profile':'axm-pack-preview/0.1','toolchain':version,'artifacts':hashes,'build_flags':['-trimpath','-buildvcs=false','-ldflags=-s -w'],'trust_scope':'Demo key is distributed with this reference. Independent publisher authentication is not claimed.'},indent=2)+'\n')
     print(json.dumps({'status':'PASS','toolchain':version,'artifacts':len(hashes),'source_files':len(files)}))
 if __name__=='__main__':main()

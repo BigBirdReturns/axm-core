@@ -129,12 +129,17 @@ def _new_file(target: Path, data: bytes) -> None:
         Path(name).unlink(missing_ok=True)
 
 
-def scan_vault(vault: str | Path) -> tuple[list[dict], dict[str, bytes], dict]:
+def scan_vault(vault: str | Path, *, limits: dict | None = None, managed_dirs: tuple[str, ...] = ()) -> tuple[list[dict], dict[str, bytes], dict]:
     """Read selected Markdown with upstream conventions, never upstream traversal.
 
     The pinned upstream walker follows directory symlinks. This custody boundary
     instead refuses links/special files and bounds every source before parsing.
     """
+    bounds = {"notes": MAX_NOTES, "note_bytes": MAX_NOTE, "vault_bytes": MAX_VAULT, "entries": MAX_ENTRIES}
+    if limits:
+        if set(limits) - set(bounds) or any(type(v) is not int or v < 1 for v in limits.values()):
+            raise ValueError("Invalid explicit scan limits")
+        bounds.update(limits)
     _memory_class()  # Enforce the already-qualified dependency version.
     from obsidian_wiki.memory import parse_frontmatter
     from obsidian_wiki.vault import is_instruction_file, okignore_patterns, okignored, skipped_dir, split_frontmatter
@@ -152,13 +157,20 @@ def scan_vault(vault: str | Path) -> tuple[list[dict], dict[str, bytes], dict]:
         directory = pending.pop()
         for child in sorted(directory.iterdir(), key=lambda x: x.name):
             entries += 1
-            if entries > MAX_ENTRIES:
+            if entries > bounds["entries"]:
                 raise ValueError("Vault entry limit exceeded")
             rel = child.relative_to(root)
             name = _path(rel.as_posix())
             mode = child.lstat().st_mode
             if child.is_symlink():
                 raise ValueError("Vault symlink refused: " + name)
+            if rel.parts[0] in managed_dirs:
+                if len(rel.parts) != 1 or not stat.S_ISDIR(mode):
+                    raise ValueError("Reserved view directory is not owned by the workbench")
+                marker = pack.loads(_read(child / "owner.json", 4096))
+                if marker.get("schema") != "axm-vault-workbench-view/1":
+                    raise ValueError("Reserved view directory is not owned by the workbench")
+                continue
             if rel.parts[0] == MANAGED:
                 if len(rel.parts) != 1 or not stat.S_ISDIR(mode):
                     raise ValueError("Reserved view directory is not owned by this adapter")
@@ -181,10 +193,10 @@ def scan_vault(vault: str | Path) -> tuple[list[dict], dict[str, bytes], dict]:
             if portable in seen:
                 raise ValueError("Case or Unicode-colliding note path: " + name)
             seen.add(portable)
-            raw = _read(child, MAX_NOTE)
+            raw = _read(child, bounds["note_bytes"])
             total += len(raw)
-            if total > MAX_VAULT or len(notes) >= MAX_NOTES:
-                raise ValueError("Vault snapshot limit exceeded (128 notes / 2 MiB)")
+            if total > bounds["vault_bytes"] or len(notes) >= bounds["notes"]:
+                raise ValueError("Vault snapshot limit exceeded for the configured note/byte bound")
             text = raw.decode("utf-8", errors="strict")
             header, _ = split_frontmatter(text.removeprefix("\ufeff"))
             title = str(parse_frontmatter(header).get("title") or child.stem)

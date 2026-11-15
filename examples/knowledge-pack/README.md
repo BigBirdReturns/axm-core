@@ -1,6 +1,6 @@
-# AXM Knowledge Pack: public reference 0.3.0
+# AXM Knowledge Pack: public reference 0.4.0
 
-[Why this matters](https://bigbirdreturns.github.io/axm-tools/knowledge-pack-open/) · [Open the browser demonstration](https://bigbirdreturns.github.io/axm-tools/knowledge-pack/) · [Independent reader challenge](https://github.com/BigBirdReturns/axm-core/issues/58) · [Obsidian and maintained search](OBSIDIAN.md) · [Existing vault round trip](VAULT.md) · [Transport profile](TRANSPORT.md) · [Conformance vectors](web/conformance/index.json)
+[Why this matters](https://bigbirdreturns.github.io/axm-tools/knowledge-pack-open/) · [Open the browser demonstration](https://bigbirdreturns.github.io/axm-tools/knowledge-pack/) · [Independent reader challenge](https://github.com/BigBirdReturns/axm-core/issues/58) · [Obsidian and maintained search](OBSIDIAN.md) · [Existing vault round trip](VAULT.md) · [Full local Vault Workbench](WORKBENCH.md) · [Transport profile](TRANSPORT.md) · [Conformance vectors](web/conformance/index.json)
 
 Open a real package, follow retained claims to exact source bytes, inspect its signed history, and run actual tamper checks. The browser downloads a WebAssembly verifier, then works locally. Opening a personal file sends no file content to a server. No account, model, backend service, or installation is needed for the browser demonstration.
 
@@ -61,3 +61,7 @@ To report another implementation, include the source revision, vector-manifest h
 Signatures establish artifact integrity and the retained evidence relationships. Source truth, completeness, currentness, domain suitability, trust-key distribution, revocation, and task-resumption quality need separate evidence. Multi-publisher packages and external-history retrieval remain outside this transport draft. Unknown domain profiles remain visible as unchecked.
 
 The browser verifier uses a bounded worker, archive limits, safe-path checks, duplicate-key detection, and a read-only filesystem. It executes no package content. Its actual bytes, source, and failures are public so another implementation can challenge the result.
+
+## Incremental multi-vault application
+
+The optional [Vault Workbench](WORKBENCH.md) provides browser-based source review, selective approval of Forge extraction proposals, per-document signed revisions, signed collection catalogs, Spectra cross-vault retrieval, historical queries, competing-assertion review, draft-only filesystem watching, native Obsidian views, and independently verifiable portable collection exports. Start with `python3 scripts/launch_workbench.py --demo`, then use Settings to register real vaults and an explicitly selected provider. The source-kit runtime files retain their Forge and Spectra ownership in `runtime/SOURCE-MAP.json`.

@@ -11,3 +11,4 @@ web/wasm_exec.js
 web/release.json
 web/SHA256SUMS.txt
 web/VAULT.md
+web/WORKBENCH.md

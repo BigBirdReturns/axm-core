@@ -122,10 +122,18 @@ class SpectraEngine:
         cache_path: Optional[str] = None,
         db_path: Optional[str] = None,
         temp_root: Optional[str] = None,
+        query_threads: Optional[int] = None,
+        async_threads: Optional[int] = None,
     ) -> None:
         self._start_time = time.time()
         self._lock = threading.RLock()
-        self.con = duckdb.connect(":memory:")
+        config = {}
+        for name, value in (("threads", query_threads), ("async_threads", async_threads)):
+            if value is not None:
+                if type(value) is not int or not 1 <= value <= 64:
+                    raise ValueError(name + " must be an integer from 1 to 64")
+                config[name] = value
+        self.con = duckdb.connect(":memory:", config=config)
         self._mount_dirs: Dict[str, Path] = {}
         self._mount_specs: Dict[str, MountSpec] = {}
         self._claims: Dict[str, List[Dict[str, Any]]] = {}
