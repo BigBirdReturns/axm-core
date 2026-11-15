@@ -87,7 +87,7 @@ def _unchecked(verdict: dict, shard_id: str | None = None) -> list[str]:
     return sorted({
         profile
         for check in verdict.get("checks", [])
-        if shard_id is None or check["shard_id"] == shard_id
+        if shard_id is None or check["shard_id"] == shard_id  # drift-ok: compare verified derived identity, never assign it
         for profile in check.get("profiles_unchecked", [])
     })
 
